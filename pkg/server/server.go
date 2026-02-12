@@ -21,8 +21,6 @@ import (
 	"syscall"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/abshkbh/arrakis/out/gen/chvapi"
 	"github.com/abshkbh/arrakis/out/gen/serverapi"
 	"github.com/abshkbh/arrakis/pkg/cmdserver"
@@ -31,6 +29,7 @@ import (
 	"github.com/abshkbh/arrakis/pkg/server/fountain"
 	"github.com/abshkbh/arrakis/pkg/server/ipallocator"
 	"github.com/abshkbh/arrakis/pkg/server/portallocator"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gvisor.dev/gvisor/pkg/cleanup"
@@ -802,6 +801,7 @@ func (s *Server) createVM(
 	initramfsPath string,
 	rootfsPath string,
 	forRestore bool,
+	ttlInSeconds float32,
 ) (*vm, error) {
 	cleanup := cleanup.Make(func() {
 		log.WithFields(
@@ -839,6 +839,17 @@ func (s *Server) createVM(
 	logFile, err := os.Create(logFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log file: %w", err)
+	}
+
+	metadataPath := path.Join(vmStateDir, "metadata.json")
+	metadataFile, err := os.Create(metadataPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create metadata file: %w", err)
+	}
+	defer metadataFile.Close()
+	metadata := fmt.Sprintf(`{"vm_ttl_in_seconds":%d}`, int(ttlInSeconds))
+	if _, err := metadataFile.Write([]byte(metadata)); err != nil {
+		log.WithError(err).Error("failed to write metadata")
 	}
 
 	cmd := exec.Command(s.config.ChvBinPath, "--api-socket", apiSocketPath)
@@ -1243,7 +1254,7 @@ func (s *Server) StartVM(ctx context.Context, req *serverapi.StartVMRequest) (*s
 		}()
 
 		var err error
-		vm, err = s.createVM(ctx, vmName, kernelPath, initramfsPath, rootfsPath, false)
+		vm, err = s.createVM(ctx, vmName, kernelPath, initramfsPath, rootfsPath, false, *req.TtlSeconds)
 		if err != nil {
 			logger.Errorf("failed to create VM: %v", err)
 			return nil, err
@@ -1603,7 +1614,7 @@ func (s *Server) restoreVM(
 		logger.Errorf("TODO: destroy tap device: %s", oldTapDevice.Name)
 	})
 
-	vm, err := s.createVM(ctx, vmName, "", "", "", true)
+	vm, err := s.createVM(ctx, vmName, "", "", "", true, -1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VM for restore: %w", err)
 	}
