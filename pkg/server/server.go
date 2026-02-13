@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
@@ -794,6 +795,73 @@ func (s *Server) getVMAtomic(vmName string) *vm {
 	return vm
 }
 
+func (s *Server) LifecycleManager(ctx context.Context, stateDir string) error {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop() // Essential to prevent memory leaks
+
+	deleteVmCycle := func() error {
+		entries, err := os.ReadDir(stateDir)
+		if err != nil {
+			return fmt.Errorf("failed to read state directory: %w", err)
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+
+			vmID := entry.Name()
+			metadataFile := filepath.Join(stateDir, vmID, "metadata.json")
+
+			metadataB, err := os.ReadFile(metadataFile)
+			if err != nil {
+				// Use Warn instead of returning error so one missing file doesn't
+				// block other VMs from being deleted
+				log.WithError(err).Warnf("failed to read metadata for %s", vmID)
+				continue
+			}
+
+			var metadata struct {
+				ScheduleDeleteAt string `json:"schedule_delete_at"`
+			}
+			if err := json.Unmarshal(metadataB, &metadata); err != nil {
+				log.WithError(err).Errorf("malformed metadata in %s", metadataFile)
+				continue
+			}
+
+			if metadata.ScheduleDeleteAt == "" {
+				continue
+			}
+
+			scheduleD, err := time.Parse(time.RFC822, metadata.ScheduleDeleteAt)
+			if err != nil {
+				log.WithError(err).Errorf("invalid date format for VM %s", vmID)
+				continue
+			}
+
+			if time.Now().Before(scheduleD) {
+				continue
+			}
+
+			log.Infof("Scheduled deletion time reached for VM %s, destroying...", vmID)
+			if err := s.destroyVM(ctx, vmID); err != nil {
+				log.WithError(err).Errorf("failed to destroy VM %s", vmID)
+			}
+		}
+		return nil
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if err := deleteVmCycle(); err != nil {
+				log.WithError(err).Error("lifecycle cycle failed")
+			}
+		}
+	}
+}
 func (s *Server) createVM(
 	ctx context.Context,
 	vmName string,
@@ -841,15 +909,22 @@ func (s *Server) createVM(
 		return nil, fmt.Errorf("failed to create log file: %w", err)
 	}
 
-	metadataPath := path.Join(vmStateDir, "metadata.json")
+	metadataPath := filepath.Join(vmStateDir, "metadata.json")
 	metadataFile, err := os.Create(metadataPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metadata file: %w", err)
 	}
 	defer metadataFile.Close()
-	metadata := fmt.Sprintf(`{"vm_ttl_in_seconds":%d}`, int(ttlInSeconds))
-	if _, err := metadataFile.Write([]byte(metadata)); err != nil {
+	ttl := time.Now().Add(300 * time.Second)
+	if ttlInSeconds > 0 {
+		ttl = time.Now().Add(time.Duration(ttlInSeconds) * time.Second)
+	}
+	metadataPayload := map[string]string{
+		"schedule_delete_at": ttl.Format(time.RFC822),
+	}
+	if err := json.NewEncoder(metadataFile).Encode(metadataPayload); err != nil {
 		log.WithError(err).Error("failed to write metadata")
+		return nil, fmt.Errorf("failed to encode metadata: %w", err)
 	}
 
 	cmd := exec.Command(s.config.ChvBinPath, "--api-socket", apiSocketPath)

@@ -459,6 +459,9 @@ func main() {
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
+	go func() {
+		// vm ttl
+	}()
 
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
