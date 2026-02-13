@@ -857,7 +857,7 @@ func (s *Server) LifecycleManager(ctx context.Context, stateDir string) error {
 			return ctx.Err()
 		case <-ticker.C:
 			if err := deleteVmCycle(); err != nil {
-				log.WithError(err).Error("lifecycle cycle failed")
+				log.WithError(err).Error("lifecycle manager loop failed")
 			}
 		}
 	}
