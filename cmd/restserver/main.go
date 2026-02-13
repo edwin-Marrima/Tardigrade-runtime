@@ -460,7 +460,11 @@ func main() {
 		}
 	}()
 	go func() {
-		// vm ttl
+		if err := s.vmServer.LifecycleManager(
+			context.Background(),
+			serverConfig.StateDir); err != nil {
+			log.WithError(err).Error("Failed to start lifecycle manager")
+		}
 	}()
 
 	// Set up signal handling for graceful shutdown
