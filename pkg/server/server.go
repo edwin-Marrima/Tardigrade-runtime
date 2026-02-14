@@ -108,6 +108,7 @@ func Bool(b bool) *bool {
 
 type vm struct {
 	lock          sync.RWMutex
+	namespace     string
 	name          string
 	stateDirPath  string
 	apiSocketPath string
@@ -141,6 +142,9 @@ func calculateVCPUCount() int32 {
 		return maxVCPUs
 	}
 	return suggestedVCPUs
+}
+func getVmFQName(namespace, vmName string) string {
+	return fmt.Sprintf("%s.%s", namespace, vmName)
 }
 
 // calculateGuestMemorySizeInMB calculates the appropriate memory size for the guest.
@@ -481,8 +485,8 @@ func setupBridgeAndFirewall(
 	return nil
 }
 
-func getVmStateDirPath(stateDir string, vmName string) string {
-	return path.Join(stateDir, vmName)
+func getVmStateDirPath(stateDir string, namespace string, vmName string) string {
+	return path.Join(stateDir, namespace, vmName)
 }
 
 // copyFile copies a file from sourcePath to destPath.
@@ -864,6 +868,7 @@ func (s *Server) LifecycleManager(ctx context.Context, stateDir string) error {
 }
 func (s *Server) createVM(
 	ctx context.Context,
+	namespace string,
 	vmName string,
 	kernelPath string,
 	initramfsPath string,
@@ -874,9 +879,10 @@ func (s *Server) createVM(
 	cleanup := cleanup.Make(func() {
 		log.WithFields(
 			log.Fields{
-				"vmname": vmName,
-				"action": "cleanup",
-				"api":    "createVM",
+				"vmname":    vmName,
+				"action":    "cleanup",
+				"api":       "createVM",
+				"namespace": namespace,
 			},
 		).Info("clean up done")
 	})
@@ -886,7 +892,7 @@ func (s *Server) createVM(
 		cleanup.Clean()
 	}()
 
-	vmStateDir := getVmStateDirPath(s.config.StateDir, vmName)
+	vmStateDir := getVmStateDirPath(s.config.StateDir, namespace, vmName)
 	err := os.MkdirAll(vmStateDir, 0755)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create vm state dir: %w", err)
@@ -942,7 +948,7 @@ func (s *Server) createVM(
 		return nil, fmt.Errorf("error spawning vm: %w", err)
 	}
 	cleanup.Add(func() {
-		log.WithFields(log.Fields{"vmname": vmName, "action": "cleanup", "api": "createVM"}).Info("reap VMM process")
+		log.WithFields(log.Fields{"vmname": vmName, "action": "cleanup", "api": "createVM", "namespace": namespace}).Info("reap VMM process")
 		reapProcess(cmd.Process, log.WithField("vmname", vmName), reapVmTimeout)
 	})
 
@@ -951,7 +957,7 @@ func (s *Server) createVM(
 		return nil, fmt.Errorf("error waiting for vm: %w", err)
 	}
 	cleanup.Add(func() {
-		log.WithFields(log.Fields{"vmname": vmName, "action": "cleanup", "api": "createVM"}).Info("kill VMM process")
+		log.WithFields(log.Fields{"vmname": vmName, "action": "cleanup", "api": "createVM", "namespace": namespace}).Info("kill VMM process")
 		if err := cmd.Process.Kill(); err != nil {
 			log.WithField("vmname", vmName).Errorf("Error killing vm: %v", err)
 		}
@@ -984,7 +990,7 @@ func (s *Server) createVM(
 		}
 		log.Infof("Allocated IP: %v", guestIP)
 		cleanup.Add(func() {
-			log.WithFields(log.Fields{"vmname": vmName, "action": "cleanup", "api": "createVM", "ip": guestIP.String()}).Info("freeing IP")
+			log.WithFields(log.Fields{"vmname": vmName, "namespace": namespace, "action": "cleanup", "api": "createVM", "ip": guestIP.String()}).Info("freeing IP")
 			s.ipAllocator.FreeIP(guestIP.IP)
 		})
 
@@ -996,10 +1002,11 @@ func (s *Server) createVM(
 		cleanup.Add(func() {
 			log.WithFields(
 				log.Fields{
-					"vmname": vmName,
-					"action": "cleanup",
-					"api":    "createVM",
-					"ip":     guestIP.String(),
+					"vmname":    vmName,
+					"action":    "cleanup",
+					"api":       "createVM",
+					"namespace": namespace,
+					"ip":        guestIP.String(),
 				},
 			).Info("deleting port forwards")
 			cleanupAllIPTablesRulesForIP(guestIP.IP.String())
@@ -1090,6 +1097,7 @@ func (s *Server) createVM(
 
 	vm := &vm{
 		name:             vmName,
+		namespace:        namespace,
 		stateDirPath:     vmStateDir,
 		apiSocketPath:    apiSocketPath,
 		apiClient:        apiClient,
@@ -1102,10 +1110,11 @@ func (s *Server) createVM(
 		cid:              cid,
 		statefulDiskPath: statefulDiskPath,
 	}
-	log.Infof("Successfully created VM: %s", vmName)
+	log.Infof("Successfully created VM: %s%s", namespace, vmName)
 
+	vmFQName := getVmFQName(namespace, vmName)
 	s.lock.Lock()
-	s.vms[vmName] = vm
+	s.vms[vmFQName] = vm
 	s.lock.Unlock()
 
 	cleanup.Release()
@@ -1265,16 +1274,19 @@ type Server struct {
 	config        config.ServerConfig
 }
 
-func (s *Server) StartVM(ctx context.Context, req *serverapi.StartVMRequest) (*serverapi.StartVMResponse, error) {
+func (s *Server) StartVM(ctx context.Context, namespace string, req *serverapi.StartVMRequest) (*serverapi.StartVMResponse, error) {
 	vmName := req.GetVmName()
 	if vmName == "" {
 		return nil, fmt.Errorf("vmName is required")
 	}
-	logger := log.WithField("vmName", vmName)
+	logger := log.WithFields(log.Fields{
+		"vmName":    vmName,
+		"namespace": namespace,
+	})
 
 	if snapshotId := req.GetSnapshotId(); snapshotId != "" {
 		logger.WithField("snapshotId", snapshotId).Infof("Restoring VM")
-		vm, err := s.restoreVM(ctx, vmName, snapshotId)
+		vm, err := s.restoreVM(ctx, namespace, vmName, snapshotId)
 		if err != nil {
 			return nil, fmt.Errorf("failed to restore VM from snapshot: %w", err)
 		}
@@ -1329,7 +1341,7 @@ func (s *Server) StartVM(ctx context.Context, req *serverapi.StartVMRequest) (*s
 		}()
 
 		var err error
-		vm, err = s.createVM(ctx, vmName, kernelPath, initramfsPath, rootfsPath, false, *req.TtlSeconds)
+		vm, err = s.createVM(ctx, namespace, vmName, kernelPath, initramfsPath, rootfsPath, false, *req.TtlSeconds)
 		if err != nil {
 			logger.Errorf("failed to create VM: %v", err)
 			return nil, err
@@ -1374,12 +1386,13 @@ func (s *Server) StartVM(ctx context.Context, req *serverapi.StartVMRequest) (*s
 
 func (s *Server) StopVM(ctx context.Context, req *serverapi.VMRequest) (*serverapi.VMResponse, error) {
 	vmName := req.GetVmName()
+	vmNamespace := req.GetVmNamespace()
 	logger := log.WithField("vmName", vmName)
 	logger.Infof("received request to stop VM")
-
-	vm := s.getVMAtomic(vmName)
+	vmFQName := getVmFQName(vmNamespace, vmName)
+	vm := s.getVMAtomic(vmFQName)
 	if vm == nil {
-		return nil, status.Errorf(codes.NotFound, "vm %s not found", vmName)
+		return nil, status.Errorf(codes.NotFound, "vm %s not found", vmFQName)
 	}
 
 	shutdown_req := vm.apiClient.DefaultAPI.ShutdownVM(ctx)
@@ -1399,10 +1412,14 @@ func (s *Server) StopVM(ctx context.Context, req *serverapi.VMRequest) (*servera
 	}, nil
 }
 
-func (s *Server) destroyVM(ctx context.Context, vmName string) error {
-	logger := log.WithField("vmName", vmName)
+func (s *Server) destroyVM(ctx context.Context, namespace, vmName string) error {
+	logger := log.WithFields(log.Fields{
+		"vmName":    vmName,
+		"namespace": namespace,
+	})
 	logger.Infof("received request to destroy VM")
-	vm := s.getVMAtomic(vmName)
+	vmFQName := getVmFQName(namespace, vmName)
+	vm := s.getVMAtomic(vmFQName)
 	if vm == nil {
 		return fmt.Errorf("vm %s not found", vmName)
 	}
@@ -1435,7 +1452,8 @@ func (s *Server) destroyVM(ctx context.Context, vmName string) error {
 
 func (s *Server) DestroyVM(ctx context.Context, req *serverapi.VMRequest) (*serverapi.VMResponse, error) {
 	vmName := req.GetVmName()
-	err := s.destroyVM(ctx, vmName)
+	namespace := req.GetVmNamespace()
+	err := s.destroyVM(ctx, namespace, vmName)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to destroy vm: %s: %v", vmName, err)
 	}
@@ -1445,25 +1463,30 @@ func (s *Server) DestroyVM(ctx context.Context, req *serverapi.VMRequest) (*serv
 	}, nil
 }
 
-func (s *Server) DestroyAllVMs(ctx context.Context) (*serverapi.DestroyAllVMsResponse, error) {
+func (s *Server) DestroyAllVMs(ctx context.Context, namespace string) (*serverapi.DestroyAllVMsResponse, error) {
 	log.Infof("received request to destroy all VMs")
 
 	// `destroyVM` grabs locks inside it. Hence easiest to just capture VM names before. If state is
 	// changed concurrently before destroying then we will return an error as expected. However,
 	// state will never be corrupted.
 	s.lock.RLock()
-	vmNames := make([]string, 0, len(s.vms))
-	for name := range s.vms {
-		vmNames = append(vmNames, name)
+
+	vmTraits := make([]string, 0, len(s.vms))
+	for vmFQName, _ := range s.vms {
+		if !strings.HasPrefix(vmFQName, namespace) {
+			continue
+		}
+		vmName := strings.TrimPrefix(vmFQName, namespace)
+		vmTraits = append(vmTraits, vmName)
 	}
 	s.lock.RUnlock()
 
 	var finalErr error
-	for _, vmName := range vmNames {
+	for _, vmName := range vmTraits {
 		// Each invocation grabs the same lock on `s`. No point spawning a goroutine for each VM.
-		err := s.destroyVM(ctx, vmName)
+		err := s.destroyVM(ctx, namespace, vmName)
 		if err != nil {
-			log.Warnf("failed to destroy and clean up vm: %s", vmName)
+			log.Warnf("failed to destroy and clean up vm: %s.%s", namespace, vmName)
 		}
 		finalErr = errors.Join(finalErr, err)
 	}
@@ -1477,14 +1500,18 @@ func (s *Server) DestroyAllVMs(ctx context.Context) (*serverapi.DestroyAllVMsRes
 	}, nil
 }
 
-func (s *Server) ListAllVMs(ctx context.Context) (*serverapi.ListAllVMsResponse, error) {
+func (s *Server) ListAllVMs(ctx context.Context, namespace string) (*serverapi.ListAllVMsResponse, error) {
 	resp := &serverapi.ListAllVMsResponse{}
 	var vms []serverapi.ListAllVMsResponseVmsInner
 
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
-	for _, vm := range s.vms {
+	for vmFQName, vm := range s.vms {
+		// ignore VMs that belong to different namespace
+		if !strings.HasPrefix(vmFQName, namespace) {
+			continue
+		}
 		var ipString string
 		if vm.ip != nil {
 			ipString = vm.ip.String()
@@ -1503,10 +1530,11 @@ func (s *Server) ListAllVMs(ctx context.Context) (*serverapi.ListAllVMsResponse,
 	return resp, nil
 }
 
-func (s *Server) ListVM(ctx context.Context, vmName string) (*serverapi.ListVMResponse, error) {
-	vm := s.getVMAtomic(vmName)
+func (s *Server) ListVM(ctx context.Context, namespace, vmName string) (*serverapi.ListVMResponse, error) {
+	vmFQName := getVmFQName(namespace, vmName)
+	vm := s.getVMAtomic(vmFQName)
 	if vm == nil {
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("vm not found: %s", vmName))
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("vm not found: %s", vmFQName))
 	}
 
 	var ipString string
@@ -1523,13 +1551,16 @@ func (s *Server) ListVM(ctx context.Context, vmName string) (*serverapi.ListVMRe
 	}, nil
 }
 
-func (s *Server) SnapshotVM(ctx context.Context, vmName string, snapshotId string) (*serverapi.VMSnapshotResponse, error) {
-	logger := log.WithField("vmName", vmName)
+func (s *Server) SnapshotVM(ctx context.Context, namespace, vmName string, snapshotId string) (*serverapi.VMSnapshotResponse, error) {
+	logger := log.WithFields(log.Fields{
+		"vmName":    vmName,
+		"namespace": namespace,
+	})
 	logger.Infof("received request to snapshot VM with ID: %s", snapshotId)
-
-	vm := s.getVMAtomic(vmName)
+	vmFQName := getVmFQName(namespace, vmName)
+	vm := s.getVMAtomic(vmFQName)
 	if vm == nil {
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("vm not found: %s", vmName))
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("vm not found: %s", vmFQName))
 	}
 
 	snapshotsDir := path.Join(s.config.StateDir, "snapshots")
@@ -1640,11 +1671,12 @@ func (s *Server) SnapshotVM(ctx context.Context, vmName string, snapshotId strin
 
 func (s *Server) restoreVM(
 	ctx context.Context,
+	namespace string,
 	vmName string,
 	snapshotId string,
 ) (*vm, error) {
 	// Construct the snapshot path from the snapshot ID
-	snapshotPath := path.Join(s.config.StateDir, "snapshots", snapshotId)
+	snapshotPath := path.Join(s.config.StateDir, namespace, "snapshots", snapshotId)
 
 	// Check if the snapshot directory exists
 	if _, err := os.Stat(snapshotPath); os.IsNotExist(err) {
@@ -1653,6 +1685,7 @@ func (s *Server) restoreVM(
 	logger := log.WithFields(log.Fields{
 		"vmName":       vmName,
 		"snapshotPath": snapshotPath,
+		"namespace":    namespace,
 	})
 	logger.Info("received request to restore VM from snapshot")
 	cleanup := cleanup.Make(func() {
@@ -1689,13 +1722,13 @@ func (s *Server) restoreVM(
 		logger.Errorf("TODO: destroy tap device: %s", oldTapDevice.Name)
 	})
 
-	vm, err := s.createVM(ctx, vmName, "", "", "", true, -1)
+	vm, err := s.createVM(ctx, namespace, vmName, "", "", "", true, -1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VM for restore: %w", err)
 	}
 	// From this point on we need to clean up the VM if the restore fails.
 	cleanup.Add(func() {
-		err := s.destroyVM(ctx, vmName)
+		err := s.destroyVM(ctx, namespace, vmName)
 		logger.WithError(err).Errorf("failed to destroy VM during restore cleanup")
 	})
 	vm.tapDevice = oldTapDevice
@@ -1765,12 +1798,16 @@ func (s *Server) restoreVM(
 
 func (s *Server) PauseVM(ctx context.Context, req *serverapi.VMRequest) (*serverapi.VMResponse, error) {
 	vmName := req.GetVmName()
-	logger := log.WithField("vmName", vmName)
+	vmNamespace := req.GetVmNamespace()
+	logger := log.WithFields(log.Fields{
+		"vmName":    vmName,
+		"namespace": vmNamespace,
+	})
 	logger.Infof("received request to pause VM")
-
-	vm := s.getVMAtomic(vmName)
+	vmFQName := getVmFQName(vmNamespace, vmName)
+	vm := s.getVMAtomic(vmFQName)
 	if vm == nil {
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("vm not found: %s", vmName))
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("vm not found: %s", vmFQName))
 	}
 
 	err := vm.pause(ctx)
@@ -1785,10 +1822,14 @@ func (s *Server) PauseVM(ctx context.Context, req *serverapi.VMRequest) (*server
 
 func (s *Server) ResumeVM(ctx context.Context, req *serverapi.VMRequest) (*serverapi.VMResponse, error) {
 	vmName := req.GetVmName()
-	logger := log.WithField("vmName", vmName)
+	vmNamespace := req.GetVmNamespace()
+	logger := log.WithFields(log.Fields{
+		"vmName":    vmName,
+		"namespace": vmNamespace,
+	})
 	logger.Infof("received request to resume VM")
-
-	vm := s.getVMAtomic(vmName)
+	vmFQName := getVmFQName(vmNamespace, vmName)
+	vm := s.getVMAtomic(vmFQName)
 	if vm == nil {
 		return nil, status.Error(codes.NotFound, fmt.Sprintf("vm not found: %s", vmName))
 	}
@@ -1805,10 +1846,11 @@ func (s *Server) ResumeVM(ctx context.Context, req *serverapi.VMRequest) (*serve
 	}, nil
 }
 
-func (s *Server) VMCommand(ctx context.Context, vmName string, cmd string, blocking bool) (*serverapi.VmCommandResponse, error) {
-	vm := s.getVMAtomic(vmName)
+func (s *Server) VMCommand(ctx context.Context, namespace, vmName string, cmd string, blocking bool) (*serverapi.VmCommandResponse, error) {
+	vmFQName := getVmFQName(namespace, vmName)
+	vm := s.getVMAtomic(vmFQName)
 	if vm == nil {
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("vm not found: %s", vmName))
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("vm not found: %s", vmFQName))
 	}
 
 	url := fmt.Sprintf("http://%s:4031", vm.ip.IP.String())
@@ -1819,10 +1861,11 @@ func (s *Server) VMCommand(ctx context.Context, vmName string, cmd string, block
 	return vm.handleRun(ctx, client, url, cmd, blocking)
 }
 
-func (s *Server) VMFileUpload(ctx context.Context, vmName string, files []serverapi.VmFileUploadRequestFilesInner) (*serverapi.VmFileUploadResponse, error) {
-	vm := s.getVMAtomic(vmName)
+func (s *Server) VMFileUpload(ctx context.Context, namespace, vmName string, files []serverapi.VmFileUploadRequestFilesInner) (*serverapi.VmFileUploadResponse, error) {
+	vmFQName := getVmFQName(namespace, vmName)
+	vm := s.getVMAtomic(vmFQName)
 	if vm == nil {
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("vm not found: %s", vmName))
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("vm not found: %s", vmFQName))
 	}
 
 	url := fmt.Sprintf("http://%s:4031", vm.ip.IP.String())
@@ -1906,10 +1949,11 @@ func (v *vm) handleRun(ctx context.Context, client *http.Client, baseURL string,
 	}, nil
 }
 
-func (s *Server) VMFileDownload(ctx context.Context, vmName string, paths string) (*serverapi.VmFileDownloadResponse, error) {
-	vm := s.getVMAtomic(vmName)
+func (s *Server) VMFileDownload(ctx context.Context, namespace, vmName string, paths string) (*serverapi.VmFileDownloadResponse, error) {
+	vmFQName := getVmFQName(namespace, vmName)
+	vm := s.getVMAtomic(vmFQName)
 	if vm == nil {
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("vm not found: %s", vmName))
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("vm not found: %s", vmFQName))
 	}
 
 	url := fmt.Sprintf("http://%s:4031", vm.ip.IP.String())
