@@ -107,17 +107,18 @@ func Bool(b bool) *bool {
 }
 
 type vm struct {
-	lock          sync.RWMutex
-	namespace     string
-	name          string
-	stateDirPath  string
-	apiSocketPath string
-	apiClient     *chvapi.APIClient
-	process       *os.Process
-	ip            *net.IPNet
-	tapDevice     *fountain.TapDevice
-	status        vmStatus
-	portForwards  []portForward
+	lock             sync.RWMutex
+	namespace        string
+	scheduleDeleteAt time.Time
+	name             string
+	stateDirPath     string
+	apiSocketPath    string
+	apiClient        *chvapi.APIClient
+	process          *os.Process
+	ip               *net.IPNet
+	tapDevice        *fountain.TapDevice
+	status           vmStatus
+	portForwards     []portForward
 	// This is actually a unix domain socket path that maps to all vsock server
 	// running inside the VM. A "CONNECT <port>" command sent on this socket
 	// will be forwarded to the vsock server listening on the given port inside
@@ -799,59 +800,61 @@ func (s *Server) getVMAtomic(vmName string) *vm {
 	return vm
 }
 
+func loadVmTrait(stateDir string) (map[string][]string, error) {
+	VmTrait := make(map[string][]string)
+
+	namespaces, err := os.ReadDir(stateDir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, nsEntry := range namespaces {
+		if !nsEntry.IsDir() {
+			continue // ignore files in stateDir
+		}
+
+		namespace := nsEntry.Name()
+		nsPath := filepath.Join(stateDir, namespace)
+
+		vmEntries, err := os.ReadDir(nsPath)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, vmEntry := range vmEntries {
+			// we expect vmName as file OR directory
+			vmName := vmEntry.Name()
+
+			VmTrait[namespace] = append(VmTrait[namespace], vmName)
+		}
+	}
+
+	return VmTrait, nil
+}
+
 func (s *Server) LifecycleManager(ctx context.Context, stateDir string) error {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop() // Essential to prevent memory leaks
 
-	deleteVmCycle := func() error {
-		entries, err := os.ReadDir(stateDir)
-		if err != nil {
-			return fmt.Errorf("failed to read state directory: %w", err)
+	dropAfterExpiration := func() error {
+		for vmFQName, vm := range s.vms {
+			namespace := vm.namespace
+			vmName := strings.TrimPrefix(vmFQName, namespace)
+			if time.Now().Before(vm.scheduleDeleteAt) {
+				continue
+			}
+			log.WithFields(log.Fields{
+				"namespace": namespace,
+				"vmName":    vmName,
+			}).Info("Scheduled deletion time reached, destroying...", namespace, vmName)
+			if err := s.destroyVM(ctx, namespace, vmName); err != nil {
+				log.WithError(err).WithFields(log.Fields{
+					"namespace": namespace,
+					"vmName":    vmName,
+				}).Error("failed to destroy VM")
+			}
 		}
 
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-
-			vmID := entry.Name()
-			metadataFile := filepath.Join(stateDir, vmID, "metadata.json")
-
-			metadataB, err := os.ReadFile(metadataFile)
-			if err != nil {
-				// Use Warn instead of returning error so one missing file doesn't
-				// block other VMs from being deleted
-				log.WithError(err).Warnf("failed to read metadata for %s", vmID)
-				continue
-			}
-
-			var metadata struct {
-				ScheduleDeleteAt string `json:"schedule_delete_at"`
-			}
-			if err := json.Unmarshal(metadataB, &metadata); err != nil {
-				log.WithError(err).Errorf("malformed metadata in %s", metadataFile)
-				continue
-			}
-
-			if metadata.ScheduleDeleteAt == "" {
-				continue
-			}
-
-			scheduleD, err := time.Parse(time.RFC822, metadata.ScheduleDeleteAt)
-			if err != nil {
-				log.WithError(err).Errorf("invalid date format for VM %s", vmID)
-				continue
-			}
-
-			if time.Now().Before(scheduleD) {
-				continue
-			}
-
-			log.Infof("Scheduled deletion time reached for VM %s, destroying...", vmID)
-			if err := s.destroyVM(ctx, vmID); err != nil {
-				log.WithError(err).Errorf("failed to destroy VM %s", vmID)
-			}
-		}
 		return nil
 	}
 
@@ -860,7 +863,7 @@ func (s *Server) LifecycleManager(ctx context.Context, stateDir string) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if err := deleteVmCycle(); err != nil {
+			if err := dropAfterExpiration(); err != nil {
 				log.WithError(err).Error("lifecycle manager loop failed")
 			}
 		}
@@ -915,22 +918,9 @@ func (s *Server) createVM(
 		return nil, fmt.Errorf("failed to create log file: %w", err)
 	}
 
-	metadataPath := filepath.Join(vmStateDir, "metadata.json")
-	metadataFile, err := os.Create(metadataPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create metadata file: %w", err)
-	}
-	defer metadataFile.Close()
-	ttl := time.Now().Add(300 * time.Second)
+	scheduleDeleteAt := time.Now().Add(300 * time.Second)
 	if ttlInSeconds > 0 {
-		ttl = time.Now().Add(time.Duration(ttlInSeconds) * time.Second)
-	}
-	metadataPayload := map[string]string{
-		"schedule_delete_at": ttl.Format(time.RFC822),
-	}
-	if err := json.NewEncoder(metadataFile).Encode(metadataPayload); err != nil {
-		log.WithError(err).Error("failed to write metadata")
-		return nil, fmt.Errorf("failed to encode metadata: %w", err)
+		scheduleDeleteAt = time.Now().Add(time.Duration(ttlInSeconds) * time.Second)
 	}
 
 	cmd := exec.Command(s.config.ChvBinPath, "--api-socket", apiSocketPath)
@@ -1108,6 +1098,7 @@ func (s *Server) createVM(
 		portForwards:     portForwards,
 		vsockPath:        vsockPath,
 		cid:              cid,
+		scheduleDeleteAt: scheduleDeleteAt,
 		statefulDiskPath: statefulDiskPath,
 	}
 	log.Infof("Successfully created VM: %s%s", namespace, vmName)
