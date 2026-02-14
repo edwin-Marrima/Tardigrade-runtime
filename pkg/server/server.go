@@ -1414,7 +1414,8 @@ func (s *Server) destroyVM(ctx context.Context, namespace, vmName string) error 
 	if vm == nil {
 		return fmt.Errorf("vm %s not found", vmName)
 	}
-
+	vm.lock.Lock()
+	defer vm.lock.Unlock()
 	err := vm.destroy(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to destroy vm: %s: %w", vmName, err)
