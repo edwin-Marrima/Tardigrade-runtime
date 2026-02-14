@@ -435,17 +435,17 @@ func main() {
 	r := mux.NewRouter()
 
 	// Register routes
-	r.HandleFunc("/"+API_VERSION+"/vms", s.startVM).Methods("POST")
-	r.HandleFunc("/"+API_VERSION+"/vms/{name}", s.updateVMState).Methods("PATCH")
-	r.HandleFunc("/"+API_VERSION+"/vms/{name}", s.destroyVM).Methods("DELETE")
-	r.HandleFunc("/"+API_VERSION+"/vms", s.destroyAllVMs).Methods("DELETE")
-	r.HandleFunc("/"+API_VERSION+"/vms", s.listAllVMs).Methods("GET")
-	r.HandleFunc("/"+API_VERSION+"/vms/{name}", s.listVM).Methods("GET")
-	r.HandleFunc("/"+API_VERSION+"/vms/{name}/snapshots", s.snapshotVM).Methods("POST")
-	r.HandleFunc("/"+API_VERSION+"/vms/{name}/cmd", s.vmCommand).Methods("POST")
-	r.HandleFunc("/"+API_VERSION+"/vms/{name}/files", s.vmFileUpload).Methods("POST")
-	r.HandleFunc("/"+API_VERSION+"/vms/{name}/files", s.vmFileDownload).Methods("GET")
-	r.HandleFunc("/"+API_VERSION+"/health", s.healthCheck).Methods("GET")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms", s.startVM).Methods("POST")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms/{name}", s.updateVMState).Methods("PATCH")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms/{name}", s.destroyVM).Methods("DELETE")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms", s.destroyAllVMs).Methods("DELETE")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms", s.listAllVMs).Methods("GET")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms/{name}", s.listVM).Methods("GET")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms/{name}/snapshots", s.snapshotVM).Methods("POST")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms/{name}/cmd", s.vmCommand).Methods("POST")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms/{name}/files", s.vmFileUpload).Methods("POST")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms/{name}/files", s.vmFileDownload).Methods("GET")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/health", s.healthCheck).Methods("GET")
 
 	// Start HTTP server
 	srv := &http.Server{

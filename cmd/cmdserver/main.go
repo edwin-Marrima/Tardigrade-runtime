@@ -107,6 +107,12 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
+func getProcessExitCode(cmd *exec.Cmd) int {
+	if cmd.ProcessState == nil {
+		return 0
+	}
+	return cmd.ProcessState.ExitCode()
+}
 
 // runCommandHandler handles "/cmd" POST requests.
 func runCommandHandler(w http.ResponseWriter, r *http.Request) {
@@ -187,8 +193,9 @@ func runCommandHandler(w http.ResponseWriter, r *http.Request) {
 				"args": cmdArgs,
 			}).Errorf("command execution failed output: %s err: %v", string(output), err)
 			resp := cmdserver.RunCmdResponse{
-				Error:  err.Error(),
-				Output: string(output),
+				Error:    err.Error(),
+				Output:   string(output),
+				ExitCode: getProcessExitCode(cmd),
 			}
 			writeJSON(w, resp)
 			return
@@ -205,7 +212,8 @@ func runCommandHandler(w http.ResponseWriter, r *http.Request) {
 
 		// Respond with the command output
 		resp := cmdserver.RunCmdResponse{
-			Output: string(output),
+			Output:   string(output),
+			ExitCode: getProcessExitCode(cmd),
 		}
 		writeJSON(w, resp)
 	} else {
