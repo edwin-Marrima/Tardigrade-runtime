@@ -3,3 +3,4 @@ out/
 *rules
 .vscode/
 vm-state/
+.idea/

@@ -371,6 +371,10 @@ components:
     StartVMRequest:
       type: object
       properties:
+        ttl_seconds:
+          type: number
+          description: The number of seconds after creation when the resource will be automatically deleted
+          default: 300
         vmName:
           type: string
           description: Name of the VM to start

@@ -53,7 +53,9 @@ func (s *restServer) healthCheck(w http.ResponseWriter, r *http.Request) {
 
 // Implement handler functions
 func (s *restServer) startVM(w http.ResponseWriter, r *http.Request) {
-	logger := log.WithField("api", "startVM")
+	vars := mux.Vars(r)
+	namespace := vars["namespace"]
+	logger := log.WithFields(log.Fields{"api": "startVM", "namespace": namespace})
 	startTime := time.Now()
 
 	var req serverapi.StartVMRequest
@@ -76,7 +78,7 @@ func (s *restServer) startVM(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vmName := req.GetVmName()
-	resp, err := s.vmServer.StartVM(r.Context(), &req)
+	resp, err := s.vmServer.StartVM(r.Context(), namespace, &req)
 	if err != nil {
 		logger.WithField("vmName", vmName).WithError(err).Error("Failed to start VM")
 		sendErrorResponse(
@@ -96,18 +98,23 @@ func (s *restServer) startVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *restServer) destroyVM(w http.ResponseWriter, r *http.Request) {
-	logger := log.WithField("api", "destroyVM")
+
 	vars := mux.Vars(r)
 	vmName := vars["name"]
-
+	namespace := vars["namespace"]
+	logger := log.WithFields(log.Fields{"api": "destroyVM",
+		"namespace": namespace,
+		"vmName":    vmName,
+	})
 	// Create request object with the VM name
 	req := serverapi.VMRequest{
-		VmName: &vmName,
+		VmName:    &vmName,
+		Namespace: &namespace,
 	}
 
 	resp, err := s.vmServer.DestroyVM(r.Context(), &req)
 	if err != nil {
-		logger.WithField("vmName", vmName).WithError(err).Error("Failed to destroy VM")
+		logger.WithError(err).Error("Failed to destroy VM")
 		sendErrorResponse(
 			w,
 			http.StatusInternalServerError,
@@ -120,8 +127,10 @@ func (s *restServer) destroyVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *restServer) destroyAllVMs(w http.ResponseWriter, r *http.Request) {
-	logger := log.WithField("api", "destroyAllVMs")
-	resp, err := s.vmServer.DestroyAllVMs(r.Context())
+	vars := mux.Vars(r)
+	namespace := vars["namespace"]
+	logger := log.WithFields(log.Fields{"api": "destroyAllVMs", "namespace": namespace})
+	resp, err := s.vmServer.DestroyAllVMs(r.Context(), namespace)
 	if err != nil {
 		logger.WithError(err).Error("Failed to destroy all VMs")
 		sendErrorResponse(
@@ -136,8 +145,10 @@ func (s *restServer) destroyAllVMs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *restServer) listAllVMs(w http.ResponseWriter, r *http.Request) {
-	logger := log.WithField("api", "listAllVMs")
-	resp, err := s.vmServer.ListAllVMs(r.Context())
+	vars := mux.Vars(r)
+	namespace := vars["namespace"]
+	logger := log.WithFields(log.Fields{"api": "listAllVMs", "namespace": namespace})
+	resp, err := s.vmServer.ListAllVMs(r.Context(), namespace)
 	if err != nil {
 		logger.WithError(err).Error("Failed to list all VMs")
 		sendErrorResponse(
@@ -152,12 +163,13 @@ func (s *restServer) listAllVMs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *restServer) listVM(w http.ResponseWriter, r *http.Request) {
-	logger := log.WithField("api", "listVM")
 	vars := mux.Vars(r)
 	vmName := vars["name"]
-	resp, err := s.vmServer.ListVM(r.Context(), vmName)
+	namespace := vars["namespace"]
+	logger := log.WithFields(log.Fields{"vmName": vmName, "namespace": namespace, "api": "listVM"})
+	resp, err := s.vmServer.ListVM(r.Context(), namespace, vmName)
 	if err != nil {
-		logger.WithField("vmName", vmName).WithError(err).Error("Failed to list VM")
+		logger.WithError(err).Error("Failed to list VM")
 		sendErrorResponse(
 			w,
 			http.StatusInternalServerError,
@@ -170,15 +182,19 @@ func (s *restServer) listVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *restServer) snapshotVM(w http.ResponseWriter, r *http.Request) {
-	logger := log.WithField("api", "snapshotVM")
 	vars := mux.Vars(r)
 	vmName := vars["name"]
-
+	namespace := vars["namespace"]
+	logger := log.WithFields(log.Fields{
+		"api":       "snapshotVM",
+		"vmName":    vmName,
+		"namespace": namespace,
+	})
 	var req struct {
 		SnapshotId string `json:"snapshotId,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		logger.WithField("vmName", vmName).WithError(err).Error("Invalid request body")
+		logger.WithError(err).Error("Invalid request body")
 		sendErrorResponse(
 			w,
 			http.StatusBadRequest,
@@ -186,12 +202,10 @@ func (s *restServer) snapshotVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := s.vmServer.SnapshotVM(r.Context(), vmName, req.SnapshotId)
+	resp, err := s.vmServer.SnapshotVM(r.Context(), namespace, vmName, req.SnapshotId)
 	if err != nil {
-		logger.WithFields(log.Fields{
-			"vmName":     vmName,
-			"snapshotId": req.SnapshotId,
-		}).WithError(err).Error("Failed to create snapshot")
+		logger.WithField("snapshotId", req.SnapshotId).
+			WithError(err).Error("Failed to create snapshot")
 		sendErrorResponse(
 			w,
 			http.StatusInternalServerError,
@@ -204,13 +218,18 @@ func (s *restServer) snapshotVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *restServer) updateVMState(w http.ResponseWriter, r *http.Request) {
-	logger := log.WithField("api", "updateVMState")
 	vars := mux.Vars(r)
 	vmName := vars["name"]
+	namespace := vars["namespace"]
+	logger := log.WithFields(log.Fields{
+		"api":       "updateVMState",
+		"vmName":    vmName,
+		"namespace": namespace,
+	})
 
 	var req serverapi.V1VmsNamePatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		logger.WithField("vmName", vmName).WithError(err).Error("Invalid request body")
+		logger.WithError(err).Error("Invalid request body")
 		sendErrorResponse(
 			w,
 			http.StatusBadRequest,
@@ -232,7 +251,8 @@ func (s *restServer) updateVMState(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vmReq := serverapi.VMRequest{
-		VmName: &vmName,
+		VmName:    &vmName,
+		Namespace: &namespace,
 	}
 
 	var resp *serverapi.VMResponse
@@ -262,13 +282,17 @@ func (s *restServer) updateVMState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *restServer) vmCommand(w http.ResponseWriter, r *http.Request) {
-	logger := log.WithField("api", "vmCommand")
 	vars := mux.Vars(r)
 	vmName := vars["name"]
-
+	namespace := vars["namespace"]
+	logger := log.WithFields(log.Fields{
+		"api":       "vmCommand",
+		"vmName":    vmName,
+		"namespace": namespace,
+	})
 	var req serverapi.VmCommandRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		logger.WithField("vmName", vmName).WithError(err).Error("Invalid request body")
+		logger.WithError(err).Error("Invalid request body")
 		sendErrorResponse(
 			w,
 			http.StatusBadRequest,
@@ -277,7 +301,7 @@ func (s *restServer) vmCommand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.GetCmd() == "" {
-		logger.WithField("vmName", vmName).Error("Command cannot be empty")
+		logger.Error("Command cannot be empty")
 		sendErrorResponse(
 			w,
 			http.StatusBadRequest,
@@ -292,10 +316,9 @@ func (s *restServer) vmCommand(w http.ResponseWriter, r *http.Request) {
 		blocking = *req.Blocking
 	}
 
-	resp, err := s.vmServer.VMCommand(r.Context(), vmName, cmd, blocking)
+	resp, err := s.vmServer.VMCommand(r.Context(), namespace, vmName, cmd, blocking)
 	if err != nil {
 		logger.WithFields(log.Fields{
-			"vmName":   vmName,
 			"cmd":      cmd,
 			"blocking": blocking,
 			"success":  false,
@@ -318,13 +341,18 @@ func (s *restServer) vmCommand(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *restServer) vmFileUpload(w http.ResponseWriter, r *http.Request) {
-	logger := log.WithField("api", "vmFileUpload")
 	vars := mux.Vars(r)
 	vmName := vars["name"]
+	namespace := vars["namespace"]
+	logger := log.WithFields(log.Fields{
+		"api":       "vmFileUpload",
+		"namespace": namespace,
+		"vmName":    vmName,
+	})
 
 	var req serverapi.VmFileUploadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		logger.WithField("vmName", vmName).WithError(err).Error("Invalid request body")
+		logger.WithError(err).Error("Invalid request body")
 		sendErrorResponse(
 			w,
 			http.StatusBadRequest,
@@ -333,7 +361,7 @@ func (s *restServer) vmFileUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.GetFiles()) == 0 {
-		logger.WithField("vmName", vmName).Error("No files provided")
+		logger.Error("No files provided")
 		sendErrorResponse(
 			w,
 			http.StatusBadRequest,
@@ -342,7 +370,7 @@ func (s *restServer) vmFileUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	files := req.GetFiles()
-	resp, err := s.vmServer.VMFileUpload(r.Context(), vmName, files)
+	resp, err := s.vmServer.VMFileUpload(r.Context(), namespace, vmName, files)
 	if err != nil {
 		logger.WithFields(log.Fields{
 			"vmName":    vmName,
@@ -360,13 +388,17 @@ func (s *restServer) vmFileUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *restServer) vmFileDownload(w http.ResponseWriter, r *http.Request) {
-	logger := log.WithField("api", "vmFileDownload")
 	vars := mux.Vars(r)
 	vmName := vars["name"]
-
+	namespace := vars["namespace"]
+	logger := log.WithFields(log.Fields{
+		"api":       "vmFileDownload",
+		"vmName":    vmName,
+		"namespace": namespace,
+	})
 	paths := r.URL.Query().Get("paths")
 	if paths == "" {
-		logger.WithField("vmName", vmName).Error("Missing 'paths' query parameter")
+		logger.Error("Missing 'paths' query parameter")
 		sendErrorResponse(
 			w,
 			http.StatusBadRequest,
@@ -374,7 +406,7 @@ func (s *restServer) vmFileDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := s.vmServer.VMFileDownload(r.Context(), vmName, paths)
+	resp, err := s.vmServer.VMFileDownload(r.Context(), namespace, vmName, paths)
 	if err != nil {
 		logger.WithFields(log.Fields{
 			"vmName": vmName,
@@ -435,17 +467,17 @@ func main() {
 	r := mux.NewRouter()
 
 	// Register routes
-	r.HandleFunc("/"+API_VERSION+"/vms", s.startVM).Methods("POST")
-	r.HandleFunc("/"+API_VERSION+"/vms/{name}", s.updateVMState).Methods("PATCH")
-	r.HandleFunc("/"+API_VERSION+"/vms/{name}", s.destroyVM).Methods("DELETE")
-	r.HandleFunc("/"+API_VERSION+"/vms", s.destroyAllVMs).Methods("DELETE")
-	r.HandleFunc("/"+API_VERSION+"/vms", s.listAllVMs).Methods("GET")
-	r.HandleFunc("/"+API_VERSION+"/vms/{name}", s.listVM).Methods("GET")
-	r.HandleFunc("/"+API_VERSION+"/vms/{name}/snapshots", s.snapshotVM).Methods("POST")
-	r.HandleFunc("/"+API_VERSION+"/vms/{name}/cmd", s.vmCommand).Methods("POST")
-	r.HandleFunc("/"+API_VERSION+"/vms/{name}/files", s.vmFileUpload).Methods("POST")
-	r.HandleFunc("/"+API_VERSION+"/vms/{name}/files", s.vmFileDownload).Methods("GET")
-	r.HandleFunc("/"+API_VERSION+"/health", s.healthCheck).Methods("GET")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms", s.startVM).Methods("POST")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms/{name}", s.updateVMState).Methods("PATCH")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms/{name}", s.destroyVM).Methods("DELETE")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms", s.destroyAllVMs).Methods("DELETE")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms", s.listAllVMs).Methods("GET")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms/{name}", s.listVM).Methods("GET")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms/{name}/snapshots", s.snapshotVM).Methods("POST")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms/{name}/cmd", s.vmCommand).Methods("POST")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms/{name}/files", s.vmFileUpload).Methods("POST")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/vms/{name}/files", s.vmFileDownload).Methods("GET")
+	r.HandleFunc("/"+API_VERSION+"/namespace/{namespace}/health", s.healthCheck).Methods("GET")
 
 	// Start HTTP server
 	srv := &http.Server{
@@ -459,6 +491,13 @@ func main() {
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
+	go func() {
+		if err := s.vmServer.LifecycleManager(
+			context.Background(),
+			serverConfig.StateDir); err != nil {
+			log.WithError(err).Error("Failed to start lifecycle manager")
+		}
+	}()
 
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -469,6 +508,7 @@ func main() {
 	if err := srv.Shutdown(context.Background()); err != nil {
 		log.Fatalf("Server shutdown failed: %v", err)
 	}
-	vmServer.DestroyAllVMs(context.Background())
+	// #TODO: handle delete all VMs
+	vmServer.DestroyAllVMs(context.Background(), "*")
 	log.Println("Server stopped")
 }
