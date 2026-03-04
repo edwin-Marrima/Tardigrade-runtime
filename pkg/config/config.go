@@ -7,11 +7,13 @@ import (
 )
 
 type Config struct {
-	Rootfs      string `mapstructure:"rootfs"`
-	Initramfs   string `mapstructure:"initramfs"`
-	Kernel      string `mapstructure:"kernel"`
-	Port        int    `mapstructure:"port"`
-	GuestVMPath string `mapstructure:"guest-vm-path"`
+	Rootfs             string `mapstructure:"rootfs"`
+	Initramfs          string `mapstructure:"initramfs"`
+	Kernel             string `mapstructure:"kernel"`
+	Port               int    `mapstructure:"port"`
+	GuestVMPath        string `mapstructure:"guest-vm-path"`
+	FireCrackerBinPath string `mapstructure:"firecracker-bin-path"`
+	StatePath          string `mapstructure:"state-path"`
 }
 
 func NewConfig() (*Config, error) {
