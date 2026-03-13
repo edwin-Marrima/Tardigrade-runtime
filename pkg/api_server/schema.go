@@ -3,7 +3,7 @@ package api_server
 type ResourceAllocation struct {
 	CpuCount     int64 `json:"cpuCount"`
 	MemorySizeMb int64 `json:"memorySizeMb"`
-	DiskSizeGb   int64 `json:"diskSizeMb"`
+	DiskSizeMb   int64 `json:"diskSizeMb"`
 }
 type CreateVmRequest struct {
 	Name               string             `json:"name"`

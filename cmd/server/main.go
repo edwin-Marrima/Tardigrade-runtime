@@ -50,6 +50,8 @@ func cli(cfg *config.Config) *cobra.Command {
 	apiServer.Flags().String("kernel", "", "Path to the kernel image")
 	apiServer.Flags().Int("port", 8080, "Port to listen on")
 	apiServer.Flags().String("guest-vm-path", "", "Path to the guest VM directory")
+	apiServer.Flags().String("vm-cidr", "", "CIDR Range for micro vm in cluster")
+	apiServer.Flags().String("cni-network-name", "", "NetworkName (either NetworkName or NetworkConfig are required) corresponds to the \"name\" parameter in the CNI spec's Network Configuration List structure. It selects the name of the network whose configuration will be used when invoking CNI")
 
 	viper.BindPFlag("rootfs", apiServer.Flags().Lookup("rootfs"))
 	viper.BindPFlag("firecracker-bin-path", apiServer.Flags().Lookup("firecracker-bin-path"))
@@ -57,6 +59,8 @@ func cli(cfg *config.Config) *cobra.Command {
 	viper.BindPFlag("kernel", apiServer.Flags().Lookup("kernel"))
 	viper.BindPFlag("port", apiServer.Flags().Lookup("port"))
 	viper.BindPFlag("guest-vm-path", apiServer.Flags().Lookup("guest-vm-path"))
+	viper.BindPFlag("cni-network-name", apiServer.Flags().Lookup("cni-network-name"))
+	viper.BindPFlag("vm-cidr", apiServer.Flags().Lookup("vm-cidr"))
 
 	return apiServer
 }

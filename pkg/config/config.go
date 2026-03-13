@@ -14,10 +14,13 @@ type Config struct {
 	GuestVMPath        string `mapstructure:"guest-vm-path"`
 	FireCrackerBinPath string `mapstructure:"firecracker-bin-path"`
 	StatePath          string `mapstructure:"state-path"`
+	CNINetworkName     string `mapstructure:"cni-network-name"`
+	VMCidr             string `mapstructure:"vm-cidr"`
 }
 
 func NewConfig() (*Config, error) {
 	viper.SetDefault("port", 8080)
+	viper.SetDefault("vm-cidr", "172.16.0.1/24")
 
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
