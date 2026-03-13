@@ -7,14 +7,24 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
 
 	"github.com/edwin-Marrima/Tardigrade-runtime/pkg/config"
 	"github.com/edwin-Marrima/Tardigrade-runtime/pkg/network"
 	"github.com/edwin-Marrima/Tardigrade-runtime/pkg/obs"
 	frk "github.com/firecracker-microvm/firecracker-go-sdk"
-	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
+	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	log "github.com/sirupsen/logrus"
 	"gvisor.dev/gvisor/pkg/cleanup"
+)
+
+const (
+	vethNetNsPairName = "veth0"
+
+	cniNetNSDir = "/var/run/netns"
+	cniCacheDir = "/var/lib/cni"
+	cniConfDir  = "/etc/cni/conf.d"
+	cniBinDir   = "/opt/cni/bin"
 )
 
 type ApiServer struct {
@@ -57,6 +67,7 @@ func (as *ApiServer) Start(ctx context.Context, tenantId string, vm CreateVmRequ
 	}
 	netMask := net.IP(vmCidrInfo.Mask).String()
 	cfg := frk.Config{
+		VMID:            fmt.Sprintf("%s-%s", tenantId, vm.Name),
 		LogPath:         logFile,
 		SocketPath:      sockPath,
 		InitrdPath:      as.cfg.Initramfs,
@@ -68,7 +79,7 @@ func (as *ApiServer) Start(ctx context.Context, tenantId string, vm CreateVmRequ
 		NetworkInterfaces: frk.NetworkInterfaces{
 			{CNIConfiguration: &frk.CNIConfiguration{
 				NetworkName: as.cfg.CNINetworkName,
-				IfName:      "veth0",
+				IfName:      vethNetNsPairName,
 			}},
 		},
 		Drives: []models.Drive{
@@ -94,9 +105,16 @@ func (as *ApiServer) Start(ctx context.Context, tenantId string, vm CreateVmRequ
 	if err != nil {
 		return nil, fmt.Errorf("failed to create micro vm: %w", err)
 	}
-
 	if err := m.Start(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start micro vm: %w", err)
+	}
+	vmPID, err := m.PID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get micro vm pid: %w", err)
+	}
+	pidFile := path.Join(key, "vm.pid")
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(vmPID)), 0600); err != nil {
+		return nil, fmt.Errorf("failed to write pid file: %w", err)
 	}
 
 	// Extract the tap device name and IP address populated by the SDK
@@ -118,6 +136,43 @@ func (as *ApiServer) Start(ctx context.Context, tenantId string, vm CreateVmRequ
 		NetworkDeviceName:  tapName,
 		IpAddress:          ipAddr,
 	}, nil
+}
+
+func (as *ApiServer) Shutdown(ctx context.Context, tenantId, vmName string) error {
+	logger := log.WithFields(log.Fields{
+		obs.TenantId: tenantId,
+		obs.VmName:   vmName,
+		obs.Action:   "shutdown",
+	})
+
+	key := path.Join(as.cfg.StatePath, fmt.Sprintf("%s.%s", tenantId, vmName))
+	sockPath := path.Join(key, "vm.sock")
+	cfg := frk.Config{
+		VMID:       fmt.Sprintf("%s-%s", tenantId, vmName),
+		SocketPath: sockPath,
+	}
+
+	logger.Info("connecting to micro vm")
+	m, err := frk.NewMachine(ctx, cfg)
+	if err != nil {
+		logger.WithError(err).Error("failed to connect to micro vm")
+		return fmt.Errorf("failed to shutdown micro vm: %w", err)
+	}
+
+	logger.Info("sending shutdown signal to micro vm")
+	if err := m.Shutdown(ctx); err != nil {
+		logger.WithError(err).Error("failed to shutdown micro vm")
+		return fmt.Errorf("failed to shutdown micro vm: %w", err)
+	}
+
+	logger.WithField("path", key).Info("removing micro vm state directory")
+	if err := os.RemoveAll(key); err != nil {
+		logger.WithError(err).Error("failed to remove micro vm state directory")
+		return fmt.Errorf("failed to remove %s: %w", key, err)
+	}
+
+	logger.Info("micro vm shutdown complete")
+	return nil
 }
 
 func makeWritableFS(ctx context.Context, imgPath string, sizeInMbs int64) error {
