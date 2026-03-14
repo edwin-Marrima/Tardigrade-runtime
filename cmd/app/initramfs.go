@@ -51,8 +51,8 @@ func runInitramSetup(shellBinPath string) error {
 		return fmt.Errorf("failed to copy busybox: %w", err)
 	}
 
-	if err := copyFile("initramfs-script.sh", filepath.Join(initramfsWorkDir, "init"), 0755); err != nil {
-		return fmt.Errorf("failed to copy initramfs-script.sh: %w", err)
+	if err := copyFile("initramfs.sh", filepath.Join(initramfsWorkDir, "init"), 0755); err != nil {
+		return fmt.Errorf("failed to copy initramfs.sh: %w", err)
 	}
 
 	log.Infof("initramfs work dir contents: %s", initramfsWorkDir)

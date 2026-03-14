@@ -39,6 +39,10 @@ var CNIHostLocal []byte
 
 //go:embed cni/tc-redirect-tap
 var CNITcRedirectTap []byte
+
+//go:embed busybox
+var Busybox []byte
+
 endef
 
 export BIN_CONFIG_GO
@@ -48,5 +52,5 @@ $(BIN_DIR)/config.go: $(CNI_BIN_DIR)/ptp $(CNI_BIN_DIR)/host-local $(CNI_BIN_DIR
 
 
 busybox:
-	curl -fsSL $(BUSYBOX_URL) -o busybox
-	chmod +x busybox
+	curl -fsSL $(BUSYBOX_URL) -o $(BIN_DIR)/busybox
+	chmod +x $(BIN_DIR)/busybox

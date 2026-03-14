@@ -15,8 +15,9 @@ import (
 
 func NewSetupCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "setup",
-		Short: "Set up tardigrade runtime requirements (CNI plugins, config, etc.)",
+		Use: "setup",
+		Short: "Initializes the core dependencies for the Tardigrade runtime. This process provisions " +
+			"the container network interface (CNI) plugins, the initial ramdisk (initramfs), and the rootfs",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			config, err := cfg.NewConfig()
 			if err != nil {
