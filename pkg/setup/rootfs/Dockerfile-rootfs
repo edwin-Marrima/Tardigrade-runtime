@@ -1,0 +1,12 @@
+FROM golang:1.25-alpine AS build
+
+WORKDIR /init
+COPY kernel .
+
+RUN go mod init init && go build --tags netgo --ldflags '-s -w -extldflags "-lm -lstdc++ -static"' -o init server.go
+
+FROM alpine:3.20
+
+RUN apk add --no-cache curl ca-certificates htop tini
+
+COPY --from=build init/init /init
