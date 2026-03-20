@@ -12,6 +12,26 @@ CNI_BIN_DIR := $(BIN_DIR)/cni
 CNI_PLUGINS_URL := https://github.com/containernetworking/plugins/releases/download/v$(CNI_PLUGINS_VERSION)/cni-plugins-linux-$(CNI_ARCH)-v$(CNI_PLUGINS_VERSION).tgz
 TC_REDIRECT_TAP_URL := https://github.com/alexellis/tc-tap-redirect-builder/releases/download/2024-02-14-1230/tc-redirect-tap
 
+PROTO_DIR    := proto
+ROOTFS_IMAGE ?= tardigrade/rootfs
+ROOTFS_TAG   ?= latest
+
+.PHONY: rootfs-image
+rootfs-image:
+	docker build \
+		-f rootfs/Dockerfile-rootfs \
+		-t $(ROOTFS_IMAGE):$(ROOTFS_TAG) \
+		.
+
+.PHONY: proto
+proto:
+	protoc \
+		--go_out=. \
+		--go_opt=paths=source_relative \
+		--go-grpc_out=. \
+		--go-grpc_opt=paths=source_relative \
+		$(PROTO_DIR)/cmdserver.proto
+
 .PHONY: cni-plugins
 cni-plugins: $(CNI_BIN_DIR)/ptp $(CNI_BIN_DIR)/host-local $(CNI_BIN_DIR)/tc-redirect-tap $(BIN_DIR)/config.go
 

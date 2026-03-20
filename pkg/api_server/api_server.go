@@ -96,7 +96,7 @@ func (as *ApiServer) Start(ctx context.Context, tenantId string, vm CreateVmRequ
 				IsRootDevice: toPointer(false),
 			},
 		},
-		KernelArgs: fmt.Sprintf("console=ttyS0 reboot=k panic=1  pci=off init=/init ip=::%s:%s::eth0:off", vmCidrInfo.Gateway.String(), netMask),
+		KernelArgs: fmt.Sprintf("console=ttyS0 reboot=k panic=1  pci=off init=/init ip=::%s:%s::eth0:off hostname=%s", vmCidrInfo.Gateway.String(), netMask, vm.Name),
 	}
 
 	cmd := frk.VMCommandBuilder{}.

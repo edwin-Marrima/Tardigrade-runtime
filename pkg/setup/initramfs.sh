@@ -69,5 +69,11 @@ fi
 echo "Verifying /mnt/overlay is a mount point..."
 echo $(/bin/busybox mount)
 
+echo "Moving mounts to new root..."
+/bin/busybox mount --move /dev ${NEWROOT}/dev
+/bin/busybox mount --move /proc ${NEWROOT}/proc
+/bin/busybox mount --move /sys ${NEWROOT}/sys
+/bin/busybox mount --move /mnt ${NEWROOT}/mnt
+
 echo "Switching root to ${NEWROOT}"
-exec switch_root ${NEWROOT} /init
+exec switch_root ${NEWROOT} /sbin/tini -- /usr/local/bin/server start
