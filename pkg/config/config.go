@@ -21,7 +21,7 @@ type Config struct {
 func NewConfig() (*Config, error) {
 	viper.SetDefault("rootfs", "/opt/tardigrade/runtime/fs/rootfs")
 	viper.SetDefault("rootfs-image", "")
-	viper.SetDefault("initramfs", "/opt/tardigrade/runtime/fs/initramfs")
+	viper.SetDefault("initramfs", "/opt/tardigrade/runtime/fs/initramfs.cpio")
 	viper.SetDefault("kernel", "/opt/tardigrade/runtime/bin/vmlinux")
 	viper.SetDefault("port", 8080)
 	viper.SetDefault("firecracker-bin-path", "/usr/local/bin/firecracker")

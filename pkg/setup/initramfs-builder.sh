@@ -1,7 +1,6 @@
 #!/bin/bash
-INITRAMFS_SRC_DIR="initramfs"
-INITRAMFS_WORK_DIR="/tmp/initramfs"
-OUT_FILE="initrd.cpio"
+INITRAMFS_WORK_DIR="${INITRAMFS_WORK_DIR:-/tmp/initramfs}"
+OUT_FILE="${OUT_FILE:-initrd.cpio}"
 
 
 # Create directories
@@ -20,6 +19,10 @@ find . -print0 | cpio --null --create --verbose --format=newc > /tmp/initrd.cpio
 popd > /dev/null
 
 mv /tmp/initrd.cpio ${OUT_FILE}
+ls -lha /tmp/initrd.cpio
 chmod +x ${OUT_FILE}
 rm -rf /tmp/initrd.cpio
 rm -rf ${INITRAMFS_WORK_DIR}
+
+ls -lah ${OUT_FILE}
+echo ${OUT_FILE}

@@ -74,3 +74,7 @@ $(BIN_DIR)/config.go: $(CNI_BIN_DIR)/ptp $(CNI_BIN_DIR)/host-local $(CNI_BIN_DIR
 busybox:
 	curl -fsSL $(BUSYBOX_URL) -o $(BIN_DIR)/busybox
 	chmod +x $(BIN_DIR)/busybox
+
+.PHONY: vagrant-sync
+vagrant-sync:
+	vagrant rsync-auto

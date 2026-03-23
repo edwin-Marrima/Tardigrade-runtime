@@ -10,6 +10,7 @@ import (
 	bin "github.com/edwin-Marrima/Tardigrade-runtime/.bin"
 	"github.com/edwin-Marrima/Tardigrade-runtime/pkg/config"
 	"github.com/edwin-Marrima/Tardigrade-runtime/pkg/utils"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -27,16 +28,21 @@ func CreateInitRamFS(cfg *config.Config) error {
 }
 
 func runInitRamFSBuilder(outFile, workDir string) error {
+	lg := log.WithFields(log.Fields{"work.dir": workDir, "output.file": outFile})
+	lg.Info("Running initramfs builder")
+
 	tmpDir, err := os.MkdirTemp("", "initramfs-build-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp dir: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
+	lg.WithField("temp.dir", tmpDir).Debug("copying busybox binary to temp dir")
 	if err := utils.WriteFile(bin.Busybox, filepath.Join(tmpDir, "busybox")); err != nil {
 		return fmt.Errorf("failed to write busybox: %w", err)
 	}
 
+	lg.Debug("copying initramfs binary")
 	if err := utils.WriteFile(initRamFS, filepath.Join(tmpDir, "initramfs.sh")); err != nil {
 		return fmt.Errorf("failed to write initramfs.sh: %w", err)
 	}
@@ -44,6 +50,10 @@ func runInitRamFSBuilder(outFile, workDir string) error {
 	builderPath := filepath.Join(tmpDir, "initramfs-builder.sh")
 	if err := utils.WriteFile(initRamFSBuilder, builderPath); err != nil {
 		return fmt.Errorf("failed to write initramfs-builder.sh: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(outFile), 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
 	cmd := exec.Command("/bin/bash", builderPath)
@@ -54,10 +64,11 @@ func runInitRamFSBuilder(outFile, workDir string) error {
 		"INITRAMFS_WORK_DIR="+workDir,
 		"OUT_FILE="+outFile,
 	)
-
+	lg.Debug("executing initramfs build script")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to run initramfs builder: %w", err)
 	}
 
+	lg.Info("initramfs successfully built")
 	return nil
 }

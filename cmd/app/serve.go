@@ -12,7 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 type server struct {
@@ -76,25 +75,6 @@ func NewServeCmd() *cobra.Command {
 			return runServer(cfg)
 		},
 	}
-
-	cmd.Flags().String("rootfs", "", "Path to the root filesystem image")
-	cmd.Flags().String("state-path", "/var/lib/tardigrade-runtime/", "Path to the virtual machine state")
-	cmd.Flags().String("firecracker-bin-path", "", "Path to firecracker binary")
-	cmd.Flags().String("initramfs", "", "Path to the initramfs image")
-	cmd.Flags().String("kernel", "", "Path to the kernel image")
-	cmd.Flags().Int("port", 8080, "Port to listen on")
-	cmd.Flags().String("vm-cidr", "", "CIDR range for micro vm in cluster")
-	cmd.Flags().String("cni-network-name", "", "CNI network name used when invoking CNI")
-
-	viper.BindPFlag("rootfs", cmd.Flags().Lookup("rootfs"))
-	viper.BindPFlag("state-path", cmd.Flags().Lookup("state-path"))
-	viper.BindPFlag("firecracker-bin-path", cmd.Flags().Lookup("firecracker-bin-path"))
-	viper.BindPFlag("initramfs", cmd.Flags().Lookup("initramfs"))
-	viper.BindPFlag("kernel", cmd.Flags().Lookup("kernel"))
-	viper.BindPFlag("port", cmd.Flags().Lookup("port"))
-	viper.BindPFlag("guest-vm-path", cmd.Flags().Lookup("guest-vm-path"))
-	viper.BindPFlag("cni-network-name", cmd.Flags().Lookup("cni-network-name"))
-	viper.BindPFlag("vm-cidr", cmd.Flags().Lookup("vm-cidr"))
 
 	return cmd
 }
