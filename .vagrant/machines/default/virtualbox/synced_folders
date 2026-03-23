@@ -1,1 +1,0 @@
-{"rsync":{"/home/vagrant/tardigrade-runtime":{"type":"rsync","rsync__exclude":[".git/",".DS_Store","vendor/"],"guestpath":"/home/vagrant/tardigrade-runtime","hostpath":"/Users/user/Documents/tardigrade-ML/Tardigrade-runtime","disabled":false,"__vagrantfile":true,"exclude":[".git/",".DS_Store","vendor/"],"owner":"vagrant","group":"vagrant"}}}
