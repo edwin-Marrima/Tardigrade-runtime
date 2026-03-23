@@ -26,6 +26,9 @@ func NewSetupCmd() *cobra.Command {
 			if err := pkgsetup.Cni(config); err != nil {
 				return fmt.Errorf("failed to setup CNI: %w", err)
 			}
+			if err := pkgsetup.Start(config); err != nil {
+				return fmt.Errorf("failed to setup systemd service: %w", err)
+			}
 			return nil
 		},
 	}
