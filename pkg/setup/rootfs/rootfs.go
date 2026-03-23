@@ -22,9 +22,9 @@ var run = func(name string, args ...string) error {
 	return cmd.Run()
 }
 
-// setupRootfs pulls image from the registry, exports its filesystem into a
+// SetupRootfs pulls image from the registry, exports its filesystem into a
 // 2 GiB ext4 image written to outputFilePath.
-func setupRootfs(image, outputFilePath string) error {
+func SetupRootfs(image, outputFilePath string) error {
 	if err := run("docker", "pull", image); err != nil {
 		return fmt.Errorf("failed to pull image %q: %w", image, err)
 	}

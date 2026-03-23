@@ -22,7 +22,7 @@ var initRamFS []byte
 //go:embed initramfs-builder.sh
 var initRamFSBuilder []byte
 
-func CreateInitRamFS(cfg config.Config) error {
+func CreateInitRamFS(cfg *config.Config) error {
 	return runInitRamFSBuilder(cfg.Initramfs, defaultInitramfsWorkDir)
 }
 

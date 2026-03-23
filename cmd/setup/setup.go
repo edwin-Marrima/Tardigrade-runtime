@@ -5,6 +5,7 @@ import (
 
 	cfg "github.com/edwin-Marrima/Tardigrade-runtime/pkg/config"
 	pkgsetup "github.com/edwin-Marrima/Tardigrade-runtime/pkg/setup"
+	"github.com/edwin-Marrima/Tardigrade-runtime/pkg/setup/rootfs"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +26,12 @@ func NewSetupCmd() *cobra.Command {
 			}
 			if err := pkgsetup.Cni(config); err != nil {
 				return fmt.Errorf("failed to setup CNI: %w", err)
+			}
+			if err := rootfs.SetupRootfs(config); err != nil {
+				return fmt.Errorf("failed to setup CNI: %w", err)
+			}
+			if err := pkgsetup.CreateInitRamFS(config); err != nil {
+				return fmt.Errorf("failed to setup InitRamfs: %w", err)
 			}
 			if err := pkgsetup.Start(config); err != nil {
 				return fmt.Errorf("failed to setup systemd service: %w", err)
