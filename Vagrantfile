@@ -1,7 +1,10 @@
+ENV['VAGRANT_EXPERIMENTAL'] = 'disks'
+
 Vagrant.configure("2") do |config|
   config.vm.box = "hashicorp-education/ubuntu-24-04"
   config.vm.box_version = "0.1.0"
 
+  config.vm.disk :disk, size: "25GB", primary: true
   config.vm.network "forwarded_port", guest: 8080, host: 8080
   config.vm.network "forwarded_port", guest: 8081, host: 8081
 
@@ -27,6 +30,9 @@ Vagrant.configure("2") do |config|
         # Install Docker packages
         apt-get update
         apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+        usermod -aG docker $USER
+        newgrp docker
+
   SHELL
 
   config.vm.synced_folder "./", "/home/vagrant/tardigrade-runtime", type: "rsync",

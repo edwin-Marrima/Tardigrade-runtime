@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"text/template"
 
-	"github.com/edwin-Marrima/Tardigrade-runtime/pkg/config"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -19,15 +18,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart={{.BinaryPath}} serve \
-  --rootfs {{.Rootfs}} \
-  --initramfs {{.Initramfs}} \
-  --kernel {{.Kernel}} \
-  --port {{.Port}} \
-  --firecracker-bin-path {{.FireCrackerBinPath}} \
-  --state-path {{.StatePath}} \
-  --cni-network-name {{.CNINetworkName}} \
-  --vm-cidr {{.VMCidr}}
+ExecStart={{.BinaryPath}} serve --config {{.ConfigPath}}
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
@@ -40,23 +31,20 @@ WantedBy=multi-user.target
 const serviceUnitPath = "/etc/systemd/system/tardigrade-runtime.service"
 
 type serviceConfig struct {
-	BinaryPath         string
-	Rootfs             string
-	Initramfs          string
-	Kernel             string
-	Port               int
-	FireCrackerBinPath string
-	StatePath          string
-	CNINetworkName     string
-	VMCidr             string
+	BinaryPath string
+	ConfigPath string
 }
 
-func Start(cfg *config.Config) error {
+type SystemdSegment struct {
+	ConfigPath string
+}
+
+func (s *SystemdSegment) Provision() error {
 	if err := copyBinary(); err != nil {
 		return fmt.Errorf("failed to install binary: %w", err)
 	}
 
-	if err := writeServiceUnit(cfg); err != nil {
+	if err := writeServiceUnit(s.ConfigPath); err != nil {
 		return fmt.Errorf("failed to write systemd unit: %w", err)
 	}
 
@@ -72,6 +60,27 @@ func Start(cfg *config.Config) error {
 
 	log.Info("tardigrade-runtime service started successfully")
 	return nil
+}
+
+func (s *SystemdSegment) DeProvision() error {
+	for _, args := range [][]string{
+		{"stop", "tardigrade-runtime.service"},
+		{"disable", "tardigrade-runtime.service"},
+	} {
+		if err := runSystemctl(args...); err != nil {
+			log.WithError(err).Warn("failed to stop tardigrade-runtime.service")
+		}
+	}
+
+	if err := os.Remove(serviceUnitPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove service unit: %w", err)
+	}
+
+	if err := os.Remove(binaryDest); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove binary: %w", err)
+	}
+
+	return runSystemctl("daemon-reload")
 }
 
 func copyBinary() error {
@@ -101,7 +110,7 @@ func copyBinary() error {
 	return out.Sync()
 }
 
-func writeServiceUnit(cfg *config.Config) error {
+func writeServiceUnit(configPath string) error {
 	tmpl, err := template.New("service").Parse(serviceTemplate)
 	if err != nil {
 		return err
@@ -114,15 +123,8 @@ func writeServiceUnit(cfg *config.Config) error {
 	defer f.Close()
 
 	data := serviceConfig{
-		BinaryPath:         binaryDest,
-		Rootfs:             cfg.Rootfs,
-		Initramfs:          cfg.Initramfs,
-		Kernel:             cfg.Kernel,
-		Port:               cfg.Port,
-		FireCrackerBinPath: cfg.FireCrackerBinPath,
-		StatePath:          cfg.StatePath,
-		CNINetworkName:     cfg.CNINetworkName,
-		VMCidr:             cfg.VMCidr,
+		BinaryPath: binaryDest,
+		ConfigPath: configPath,
 	}
 
 	log.WithField("path", serviceUnitPath).Info("writing systemd service unit")

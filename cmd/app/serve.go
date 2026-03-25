@@ -63,11 +63,12 @@ func (s *server) delete() func(c *gin.Context) {
 }
 
 func NewServeCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "serve",
 		Short: "Start the tardigrade runtime API server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.NewConfig()
+			configPath, _ := cmd.Root().PersistentFlags().GetString("config")
+			cfg, err := config.NewConfig(configPath)
 			if err != nil {
 				log.WithError(err).Error("failed to load config")
 				return fmt.Errorf("failed to load config: %w", err)
@@ -75,8 +76,6 @@ func NewServeCmd() *cobra.Command {
 			return runServer(cfg)
 		},
 	}
-
-	return cmd
 }
 
 func runServer(cfg *config.Config) error {
@@ -87,8 +86,8 @@ func runServer(cfg *config.Config) error {
 	r.DELETE("/tenant/:tenantId/vm/:vmId", s.delete())
 
 	go func() {
-		addr := fmt.Sprintf(":%d", cfg.Port)
-		log.WithField("port", cfg.Port).Info("starting http server")
+		addr := fmt.Sprintf(":%d", cfg.Runtime.Port)
+		log.WithField("port", cfg.Runtime.Port).Info("starting http server")
 		if err := r.Run(addr); err != nil {
 			log.WithError(err).Fatal("failed to start http server")
 			os.Exit(1)

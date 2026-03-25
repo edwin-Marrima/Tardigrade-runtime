@@ -23,8 +23,23 @@ var initRamFS []byte
 //go:embed initramfs-builder.sh
 var initRamFSBuilder []byte
 
+type InitramfsSegment struct {
+	Config *config.Config
+}
+
+func (s *InitramfsSegment) Provision() error {
+	return runInitRamFSBuilder(s.Config.Filesystem.InitramPath, defaultInitramfsWorkDir)
+}
+
+func (s *InitramfsSegment) DeProvision() error {
+	if err := os.Remove(s.Config.Filesystem.InitramPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove initramfs: %w", err)
+	}
+	return nil
+}
+
 func CreateInitRamFS(cfg *config.Config) error {
-	return runInitRamFSBuilder(cfg.Initramfs, defaultInitramfsWorkDir)
+	return (&InitramfsSegment{Config: cfg}).Provision()
 }
 
 func runInitRamFSBuilder(outFile, workDir string) error {

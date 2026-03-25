@@ -1,52 +1,76 @@
 package config
 
 import (
-	"errors"
+	"fmt"
+	"os"
 
-	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
-type Config struct {
-	Rootfs             string `mapstructure:"rootfs"`
-	RootfsImage        string `mapstructure:"rootfs-image"`
-	Initramfs          string `mapstructure:"initramfs"`
-	Kernel             string `mapstructure:"kernel"`
-	Port               int    `mapstructure:"port"`
-	FireCrackerBinPath string `mapstructure:"firecracker-bin-path"`
-	StatePath          string `mapstructure:"state-path"`
-	CNINetworkName     string `mapstructure:"cni-network-name"`
-	VMCidr             string `mapstructure:"vm-cidr"`
+type RuntimeConfig struct {
+	FirecrackerPath string `yaml:"firecracker_path"`
+	StateFolder     string `yaml:"state_folder"`
+	Port            int    `yaml:"port"`
+	LinuxKernelPath string `yaml:"linux_kernel_path"`
 }
 
-func NewConfig() (*Config, error) {
-	viper.SetDefault("rootfs", "/opt/tardigrade/runtime/fs/rootfs")
-	viper.SetDefault("rootfs-image", "")
-	viper.SetDefault("initramfs", "/opt/tardigrade/runtime/fs/initramfs.cpio")
-	viper.SetDefault("kernel", "/opt/tardigrade/runtime/bin/vmlinux")
-	viper.SetDefault("port", 8080)
-	viper.SetDefault("firecracker-bin-path", "/usr/local/bin/firecracker")
-	viper.SetDefault("state-path", "/var/tardigrade/runtime/state")
-	viper.SetDefault("cni-network-name", "tardigrade")
-	viper.SetDefault("vm-cidr", "172.16.0.1/24")
+type NetworkConfig struct {
+	Cidr        string `yaml:"cidr"`
+	NetworkName string `yaml:"network_name"`
+}
 
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
-	viper.AddConfigPath("/etc/tardigrade/")
+type RootfsConfig struct {
+	Path        string `yaml:"path"`
+	DockerImage string `yaml:"docker_image"`
+}
 
-	viper.AutomaticEnv()
+type FilesystemConfig struct {
+	InitramPath string       `yaml:"initram_path"`
+	Rootfs      RootfsConfig `yaml:"rootfs"`
+}
 
-	if err := viper.ReadInConfig(); err != nil {
-		var configFileNotFoundError viper.ConfigFileNotFoundError
-		if !errors.As(err, &configFileNotFoundError) {
-			return nil, err
+type Config struct {
+	Runtime    RuntimeConfig    `yaml:"runtime"`
+	Network    NetworkConfig    `yaml:"network"`
+	Filesystem FilesystemConfig `yaml:"filesystem"`
+}
+
+func defaults() *Config {
+	return &Config{
+		Runtime: RuntimeConfig{
+			FirecrackerPath: "/usr/local/bin/firecracker",
+			StateFolder:     "/var/tardigrade/runtime/state",
+			Port:            8080,
+			LinuxKernelPath: "/opt/tardigrade/runtime/bin/vmlinux",
+		},
+		Network: NetworkConfig{
+			Cidr:        "172.16.0.0/24",
+			NetworkName: "tardigrade",
+		},
+		Filesystem: FilesystemConfig{
+			InitramPath: "/opt/tardigrade/runtime/fs/initramfs.cpio",
+			Rootfs: RootfsConfig{
+				Path:        "/opt/tardigrade/runtime/fs/rootfs.img",
+				DockerImage: "tardigrade/rootfs:latest",
+			},
+		},
+	}
+}
+
+func NewConfig(path string) (*Config, error) {
+	cfg := defaults()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cfg, nil
 		}
+		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
 	}
 
-	var config Config
-	if err := viper.Unmarshal(&config); err != nil {
-		return nil, err
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config file %s: %w", path, err)
 	}
 
-	return &config, nil
+	return cfg, nil
 }

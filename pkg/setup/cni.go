@@ -13,17 +13,39 @@ import (
 )
 
 const cniBinDir = "/opt/cni/bin"
-const cniConfDir = "/etc/cni/net.d"
+const cniConfDir = "/etc/cni/conf.d"
 
-func Cni(c *cfg.Config) error {
-	if err := writeCNIConf(c, cniConfDir); err != nil {
+type CniSegment struct {
+	Config *cfg.Config
+}
+
+func (s *CniSegment) Provision() error {
+	if err := writeCNIConf(s.Config, cniConfDir); err != nil {
 		return err
 	}
 	return setupCNIBin(cniBinDir, bin.CNIPtp, bin.CNIHostLocal, bin.CNITcRedirectTap)
 }
 
+func (s *CniSegment) DeProvision() error {
+	confPath := filepath.Join(cniConfDir, s.Config.Network.NetworkName+".conflist")
+	if err := os.Remove(confPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove CNI config: %w", err)
+	}
+	for _, name := range []string{"ptp", "host-local", "tc-redirect-tap"} {
+		path := filepath.Join(cniBinDir, name)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove CNI plugin %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func Cni(c *cfg.Config) error {
+	return (&CniSegment{Config: c}).Provision()
+}
+
 func writeCNIConf(c *cfg.Config, confDir string) error {
-	lg := log.WithField("network.name", c.CNINetworkName)
+	lg := log.WithField("network.name", c.Network.NetworkName)
 	lg.Info("creating CNI configuration")
 	if err := os.MkdirAll(confDir, 0755); err != nil {
 		return fmt.Errorf("failed to create CNI conf dir: %w", err)
@@ -31,14 +53,14 @@ func writeCNIConf(c *cfg.Config, confDir string) error {
 
 	conf := map[string]any{
 		"cniVersion": "1.0.0",
-		"name":       c.CNINetworkName,
+		"name":       c.Network.NetworkName,
 		"plugins": []map[string]any{
 			{
 				"type":   "ptp",
 				"ipMasq": true,
 				"ipam": map[string]any{
 					"type":   "host-local",
-					"subnet": c.VMCidr,
+					"subnet": c.Network.Cidr,
 				},
 			},
 			{
@@ -52,7 +74,7 @@ func writeCNIConf(c *cfg.Config, confDir string) error {
 		return fmt.Errorf("failed to marshal CNI config: %w", err)
 	}
 
-	confPath := filepath.Join(confDir, c.CNINetworkName+".conflist")
+	confPath := filepath.Join(confDir, c.Network.NetworkName+".conflist")
 	if err := os.WriteFile(confPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write CNI config: %w", err)
 	}

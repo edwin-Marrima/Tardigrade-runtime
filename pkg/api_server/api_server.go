@@ -38,17 +38,19 @@ func NewApiServer(cfg *config.Config) *ApiServer {
 }
 
 func (as *ApiServer) Start(ctx context.Context, tenantId string, vm CreateVmRequest) (*CreateVmResponse, error) {
-	key := path.Join(as.cfg.StatePath, fmt.Sprintf("%s.%s", tenantId, vm.Name))
+	ln := log.WithFields(log.Fields{
+		obs.TenantId: tenantId,
+		obs.VmName:   vm.Name,
+		obs.Action:   "start",
+	})
+	key := path.Join(as.cfg.Runtime.StateFolder, fmt.Sprintf("%s.%s", tenantId, vm.Name))
 	// create state dir
 	if err := os.MkdirAll(key, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create state directory: %w", err)
 	}
 
 	cu := cleanup.Make(func() {
-		log.WithFields(log.Fields{
-			obs.TenantId: tenantId,
-			obs.VmName:   vm.Name,
-		}).Info("clean up vm creation Leftovers")
+		ln.Info("clean up vm creation Leftovers")
 	})
 	cu.Add(func() {
 		_ = os.RemoveAll(key)
@@ -61,7 +63,7 @@ func (as *ApiServer) Start(ctx context.Context, tenantId string, vm CreateVmRequ
 	if err := makeWritableFS(ctx, ext4Fs, vm.ResourceAllocation.DiskSizeMb); err != nil {
 		return nil, fmt.Errorf("failed to create ext4 filesystem: %w", err)
 	}
-	vmCidrInfo, err := network.ParseCIDR(as.cfg.VMCidr)
+	vmCidrInfo, err := network.ParseCIDR(as.cfg.Network.Cidr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse micro vm cidr: %w", err)
 	}
@@ -70,15 +72,15 @@ func (as *ApiServer) Start(ctx context.Context, tenantId string, vm CreateVmRequ
 		VMID:            fmt.Sprintf("%s-%s", tenantId, vm.Name),
 		LogPath:         logFile,
 		SocketPath:      sockPath,
-		InitrdPath:      as.cfg.Initramfs,
-		KernelImagePath: as.cfg.Kernel,
+		InitrdPath:      as.cfg.Filesystem.InitramPath,
+		KernelImagePath: as.cfg.Runtime.LinuxKernelPath,
 		MachineCfg: models.MachineConfiguration{
 			VcpuCount:  &vm.ResourceAllocation.CpuCount,
 			MemSizeMib: &vm.ResourceAllocation.MemorySizeMb,
 		},
 		NetworkInterfaces: frk.NetworkInterfaces{
 			{CNIConfiguration: &frk.CNIConfiguration{
-				NetworkName: as.cfg.CNINetworkName,
+				NetworkName: as.cfg.Network.NetworkName,
 				IfName:      vethNetNsPairName,
 			}},
 		},
@@ -87,7 +89,7 @@ func (as *ApiServer) Start(ctx context.Context, tenantId string, vm CreateVmRequ
 				DriveID:      toPointer("rootfs"),
 				IsReadOnly:   toPointer(true),
 				IsRootDevice: toPointer(false),
-				PathOnHost:   toPointer(as.cfg.Rootfs),
+				PathOnHost:   toPointer(as.cfg.Filesystem.Rootfs.Path),
 			},
 			{
 				DriveID:      toPointer("overlayfs"),
@@ -96,11 +98,24 @@ func (as *ApiServer) Start(ctx context.Context, tenantId string, vm CreateVmRequ
 				IsRootDevice: toPointer(false),
 			},
 		},
-		KernelArgs: fmt.Sprintf("console=ttyS0 reboot=k panic=1  pci=off init=/init ip=::%s:%s::eth0:off hostname=%s", vmCidrInfo.Gateway.String(), netMask, vm.Name),
+		//KernelArgs: fmt.Sprintf("console=ttyS0 reboot=k panic=1  pci=off init=/init ip=::%s:%s::eth0:off hostname=%s", vmCidrInfo.Gateway.String(), netMask, vm.Name),
+		KernelArgs: fmt.Sprintf("console=ttyS0 reboot=k panic=1  pci=off init=/init  hostname=%s", vm.Name),
 	}
-
+	ln.WithFields(log.Fields{
+		"vm.id":             cfg.VMID,
+		"socket.apth":       cfg.SocketPath,
+		"init.ram.path":     cfg.InitrdPath,
+		"kernel.image.path": cfg.KernelImagePath,
+		"vcpu":              cfg.MachineCfg.VcpuCount,
+		"memory":            cfg.MachineCfg.MemSizeMib,
+		"gateway":           vmCidrInfo.Gateway.String(),
+		"network.mask":      netMask,
+		"number.of.drives":  len(cfg.Drives),
+		"network.ifname":    vethNetNsPairName,
+		"network.cni.name":  as.cfg.Network.NetworkName,
+	}).Info("starting VM")
 	cmd := frk.VMCommandBuilder{}.
-		WithBin(as.cfg.FireCrackerBinPath).Build(ctx)
+		WithBin(as.cfg.Runtime.FirecrackerPath).Build(ctx)
 	m, err := frk.NewMachine(ctx, cfg, frk.WithProcessRunner(cmd))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create micro vm: %w", err)
@@ -145,7 +160,7 @@ func (as *ApiServer) Shutdown(ctx context.Context, tenantId, vmName string) erro
 		obs.Action:   "shutdown",
 	})
 
-	key := path.Join(as.cfg.StatePath, fmt.Sprintf("%s.%s", tenantId, vmName))
+	key := path.Join(as.cfg.Runtime.StateFolder, fmt.Sprintf("%s.%s", tenantId, vmName))
 	sockPath := path.Join(key, "vm.sock")
 	cfg := frk.Config{
 		VMID:       fmt.Sprintf("%s-%s", tenantId, vmName),
