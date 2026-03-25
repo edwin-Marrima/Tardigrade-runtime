@@ -115,7 +115,10 @@ func (as *ApiServer) Start(ctx context.Context, tenantId string, vm CreateVmRequ
 		"network.cni.name":  as.cfg.Network.NetworkName,
 	}).Info("starting VM")
 	cmd := frk.VMCommandBuilder{}.
-		WithBin(as.cfg.Runtime.FirecrackerPath).Build(context.Background())
+		WithBin(as.cfg.Runtime.FirecrackerPath).
+		WithSocketPath(sockPath).
+		Build(context.Background())
+	//#TODO: replace with logger on cfg
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	m, err := frk.NewMachine(ctx, cfg, frk.WithProcessRunner(cmd))
