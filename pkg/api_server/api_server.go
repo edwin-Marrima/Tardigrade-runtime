@@ -115,7 +115,9 @@ func (as *ApiServer) Start(ctx context.Context, tenantId string, vm CreateVmRequ
 		"network.cni.name":  as.cfg.Network.NetworkName,
 	}).Info("starting VM")
 	cmd := frk.VMCommandBuilder{}.
-		WithBin(as.cfg.Runtime.FirecrackerPath).Build(ctx)
+		WithBin(as.cfg.Runtime.FirecrackerPath).Build(context.Background())
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	m, err := frk.NewMachine(ctx, cfg, frk.WithProcessRunner(cmd))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create micro vm: %w", err)
