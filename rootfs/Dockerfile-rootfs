@@ -14,8 +14,7 @@ COPY proto/ ./proto/
 RUN CGO_ENABLED=0 go build -ldflags '-s -w -extldflags "-lm -lstdc++ -static"' -o /server ./cmd/cmdserver/
 
 FROM alpine:3.20
-#TODO: uncomment
-#RUN apk add --no-cache curl ca-certificates htop tini python3
+RUN apk add --no-cache curl ca-certificates htop tini python3
 
 COPY --from=init-build /init/init /init
 COPY --from=server-build /server /usr/local/bin/server

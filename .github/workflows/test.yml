@@ -43,7 +43,7 @@ jobs:
 
       - name: Download binaries
         run: make download-bins TARGET_ARCH=${{ matrix.arch }}
-      - run: ls -lah .bin
+
       - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
