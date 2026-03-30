@@ -11,8 +11,10 @@ import (
 
 func TestWriteCNIConf(t *testing.T) {
 	config := &cfg.Config{
-		CNINetworkName: "tardigrade",
-		VMCidr:         "172.16.0.0/24",
+		Network: cfg.NetworkConfig{
+			NetworkName: "tardigrade",
+			Cidr:        "172.16.0.0/24",
+		},
 	}
 
 	t.Run("writes conflist file with correct name", func(t *testing.T) {

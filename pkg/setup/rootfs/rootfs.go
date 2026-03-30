@@ -29,7 +29,7 @@ type RootfsSegment struct {
 }
 
 func (s *RootfsSegment) Provision() error {
-	return SetupRootfs(s.Image, s.OutputFilePath)
+	return setupRootfs(s.Image, s.OutputFilePath)
 }
 
 func (s *RootfsSegment) DeProvision() error {
@@ -42,12 +42,17 @@ func (s *RootfsSegment) DeProvision() error {
 	return nil
 }
 
-// SetupRootfs pulls image from the registry, exports its filesystem into a
+// setupRootfs pulls image from the registry, exports its filesystem into a
 // 2 GiB ext4 image written to outputFilePath.
-func SetupRootfs(image, outputFilePath string) error {
+func setupRootfs(image, outputFilePath string) error {
 	lg := log.WithFields(log.Fields{"image": image, "outputFilePath": outputFilePath})
 
 	lg.Info("setting up rootfs")
+
+	lg.Debug("pulling image")
+	if err := run("docker", "pull", image); err != nil {
+		return fmt.Errorf("failed to pull image: %w", err)
+	}
 
 	lg.Debug("creating container")
 	if err := run("docker", "create", "--name", containerName, image); err != nil {
