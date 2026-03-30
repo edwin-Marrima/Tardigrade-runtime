@@ -4,3 +4,8 @@ out/
 .vscode/
 vm-state/
 .idea/
+.bin
+bin
+server
+cni
+.vagrant

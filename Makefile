@@ -1,82 +1,139 @@
-OUT_DIR := out
-API_CLIENT_DIR := out/gen/serverapi
-API_CLIENT_GO_PACKAGE_NAME := serverapi
-CHV_API_DIR := out/gen/chvapi
-CHV_API_GO_PACKAGE_NAME := chvapi
-RESTSERVER_BIN := ${OUT_DIR}/arrakis-restserver
-CLIENT_BIN := ${OUT_DIR}/arrakis-client
-GUESTINIT_BIN := ${OUT_DIR}/arrakis-guestinit
-ROOTFSMAKER_BIN := ${OUT_DIR}/arrakis-rootfsmaker
-CMDSERVER_BIN := ${OUT_DIR}/arrakis-cmdserver
-CMDCLIENT_BIN := ${OUT_DIR}/arrakis-cmdclient
-GUESTROOTFS_BIN := ${OUT_DIR}/arrakis-guestrootfs-ext4.img
-VSOCKSERVER_BIN := ${OUT_DIR}/arrakis-vsockserver
-VSOCKCLIENT_BIN := ${OUT_DIR}/arrakis-vsockclient
-INITRAMFS_SRC_DIR := initramfs
 
-.PHONY: all clean serverapi chvapi initramfs restserver client guestinit rootfsmaker cmdserver guestrootfs guest vsockclient vsockserver
+BUSYBOX_VERSION ?= 1.35.0
 
+# CNI versions
+CNI_PLUGINS_VERSION ?= 1.9.0
+TC_REDIRECT_TAP_VERSION ?= 2024-02-14-1230
+LINUX_KERNEL_VERSION ?= 5.10.223
+FIRECRACKER_VERSION ?= 1.10.1
+TARGET_ARCH ?= arm64
+
+# Map TARGET_ARCH to alternate naming conventions:
+#   arm64 -> aarch64  (used by Firecracker releases and busybox musl)
+#   amd64 -> x86_64
+ifeq ($(TARGET_ARCH),arm64)
+  ALT_ARCH := aarch64
+else ifeq ($(TARGET_ARCH),amd64)
+  ALT_ARCH := x86_64
+else
+  $(error Unsupported TARGET_ARCH=$(TARGET_ARCH). Use arm64 or amd64)
+endif
+
+BIN_DIR     := ./.bin
+CNI_BIN_DIR := $(BIN_DIR)/cni
+BUSYBOX_URL          := https://busybox.net/downloads/binaries/$(BUSYBOX_VERSION)-$(ALT_ARCH)-linux-musl/busybox
+CNI_PLUGINS_URL      := https://github.com/containernetworking/plugins/releases/download/v$(CNI_PLUGINS_VERSION)/cni-plugins-linux-$(TARGET_ARCH)-v$(CNI_PLUGINS_VERSION).tgz
+ifeq ($(TARGET_ARCH),arm64)
+  TC_REDIRECT_TAP_URL := https://github.com/alexellis/tc-tap-redirect-builder/releases/download/$(TC_REDIRECT_TAP_VERSION)/tc-redirect-tap-arm64
+else
+  TC_REDIRECT_TAP_URL := https://github.com/alexellis/tc-tap-redirect-builder/releases/download/$(TC_REDIRECT_TAP_VERSION)/tc-redirect-tap
+endif
+LINUX_KERNEL_URL     := https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/$(ALT_ARCH)/vmlinux-$(LINUX_KERNEL_VERSION)
+FIRECRACKER_URL      := https://github.com/firecracker-microvm/firecracker/releases/download/v$(FIRECRACKER_VERSION)/firecracker-v$(FIRECRACKER_VERSION)-$(ALT_ARCH).tgz
+
+PROTO_DIR    := proto
+ROOTFS_IMAGE ?= tardigrade/rootfs
+ROOTFS_TAG   ?= latest
+
+.PHONY: rootfs-image
+rootfs-image:
+	docker build \
+		-f rootfs/Dockerfile-rootfs \
+		-t $(ROOTFS_IMAGE):$(ROOTFS_TAG) \
+		.
+
+.PHONY: proto
+proto:
+	protoc \
+		--go_out=. \
+		--go_opt=paths=source_relative \
+		--go-grpc_out=. \
+		--go-grpc_opt=paths=source_relative \
+		$(PROTO_DIR)/cmdserver.proto
+
+.PHONY: vmlinux
+vmlinux: $(BIN_DIR)/vmlinux
+
+$(BIN_DIR)/vmlinux:
+	mkdir -p $(BIN_DIR)
+	curl -fsSL "$(LINUX_KERNEL_URL)" -o $(BIN_DIR)/vmlinux
+
+.PHONY: cni-plugins
+cni-plugins: $(CNI_BIN_DIR)/ptp $(CNI_BIN_DIR)/host-local $(CNI_BIN_DIR)/tc-redirect-tap $(BIN_DIR)/config.go
+
+$(CNI_BIN_DIR)/ptp $(CNI_BIN_DIR)/host-local:
+	mkdir -p $(CNI_BIN_DIR)
+	curl -fsSL $(CNI_PLUGINS_URL) | tar -xz -C $(CNI_BIN_DIR) ./ptp ./host-local
+
+$(CNI_BIN_DIR)/tc-redirect-tap:
+	mkdir -p $(CNI_BIN_DIR)
+	curl -fsSL $(TC_REDIRECT_TAP_URL) -o $(CNI_BIN_DIR)/tc-redirect-tap
+	chmod +x $(CNI_BIN_DIR)/tc-redirect-tap
+
+define BIN_CONFIG_GO
+package _bin
+
+import (
+	_ "embed"
+)
+
+//go:embed cni/ptp
+var CNIPtp []byte
+
+//go:embed cni/host-local
+var CNIHostLocal []byte
+
+//go:embed cni/tc-redirect-tap
+var CNITcRedirectTap []byte
+
+//go:embed busybox
+var Busybox []byte
+
+//go:embed vmlinux
+var Vmlinux []byte
+
+//go:embed firecracker
+var Firecracker []byte
+
+endef
+
+export BIN_CONFIG_GO
+
+$(BIN_DIR)/config.go: $(CNI_BIN_DIR)/ptp $(CNI_BIN_DIR)/host-local $(CNI_BIN_DIR)/tc-redirect-tap $(BIN_DIR)/firecracker
+	@echo "$$BIN_CONFIG_GO" > $@
+
+
+.PHONY: busybox
+busybox: $(BIN_DIR)/busybox
+
+$(BIN_DIR)/busybox:
+	mkdir -p $(BIN_DIR)
+	curl -fsSL $(BUSYBOX_URL) -o $(BIN_DIR)/busybox
+	chmod +x $(BIN_DIR)/busybox
+
+.PHONY: firecracker
+firecracker: $(BIN_DIR)/firecracker
+
+$(BIN_DIR)/firecracker:
+	mkdir -p $(BIN_DIR)
+	curl -fsSL $(FIRECRACKER_URL) | tar -xz --strip-components=1 \
+		-C $(BIN_DIR) \
+		release-v$(FIRECRACKER_VERSION)-$(ALT_ARCH)/firecracker-v$(FIRECRACKER_VERSION)-$(ALT_ARCH)
+	mv $(BIN_DIR)/firecracker-v$(FIRECRACKER_VERSION)-$(ALT_ARCH) $(BIN_DIR)/firecracker
+	chmod +x $(BIN_DIR)/firecracker
+
+.PHONY: download-bins
+download-bins: $(BIN_DIR)/firecracker $(CNI_BIN_DIR)/ptp $(CNI_BIN_DIR)/host-local $(CNI_BIN_DIR)/tc-redirect-tap $(BIN_DIR)/vmlinux $(BIN_DIR)/config.go $(BIN_DIR)/busybox
+	@echo "All binaries downloaded for TARGET_ARCH=$(TARGET_ARCH) (alt: $(ALT_ARCH))"
+
+.PHONY: clean
 clean:
-	rm -rf ${OUT_DIR}
+	rm -rf $(BIN_DIR)
 
-all: serverapi chvapi restserver client guestinit rootfsmaker cmdserver guestrootfs guest vsockclient vsockserver
+.PHONY: vagrant-sync
+vagrant-sync:
+	vagrant rsync-auto
 
-serverapi: ${OUT_DIR}/arrakis-serverapi.stamp
-${OUT_DIR}/arrakis-serverapi.stamp: ./api/server-api.yaml
-	mkdir -p ${API_CLIENT_DIR}
-	openapi-generator-cli generate -i $< -g go -o ${API_CLIENT_DIR} --package-name ${API_CLIENT_GO_PACKAGE_NAME} \
-	--git-user-id abshkbh \
-	--git-repo-id arrakis/${API_CLIENT_DIR} \
-    --additional-properties=withGoMod=false \
-	--global-property models,supportingFiles,apis,apiTests=false
-	rm -rf openapitools.json
 
-chvapi: ${OUT_DIR}/arrakis-chvapi.stamp
-${OUT_DIR}/arrakis-chvapi.stamp: api/chv-api.yaml
-	mkdir -p ${API_CLIENT_DIR}
-	openapi-generator-cli generate -i ./api/chv-api.yaml -g go -o ${CHV_API_DIR} --package-name ${CHV_API_GO_PACKAGE_NAME} \
-	--git-user-id abshkbh \
-	--git-repo-id arrakis/${CHV_API_DIR} \
-    --additional-properties=withGoMod=false \
-	--global-property models,supportingFiles,apis,apiTests=false
-	rm -rf openapitools.json
-
-restserver: serverapi chvapi
-	mkdir -p ${OUT_DIR}
-	CGO_ENABLED=0 go build -o ${RESTSERVER_BIN} ./cmd/restserver
-
-client: serverapi
-	mkdir -p ${OUT_DIR}
-	CGO_ENABLED=0 go build -o ${CLIENT_BIN} ./cmd/client
-
-# Build the guest init binary explicitly statically if "os" or "net" are used by
-# using the CGO_ENABLED=0 flag.
-guestinit:
-	mkdir -p ${OUT_DIR}
-	CGO_ENABLED=0 go build -o ${GUESTINIT_BIN} ./cmd/guestinit
-
-rootfsmaker:
-	mkdir -p ${OUT_DIR}
-	CGO_ENABLED=0 go build -o ${ROOTFSMAKER_BIN} ./cmd/rootfsmaker
-
-cmdserver:
-	mkdir -p ${OUT_DIR}
-	CGO_ENABLED=0 go build -o ${CMDSERVER_BIN} ./cmd/cmdserver
-
-guestrootfs: rootfsmaker initramfs cmdserver vsockserver guestinit
-	mkdir -p ${OUT_DIR}
-	sudo ${OUT_DIR}/arrakis-rootfsmaker create -o ${GUESTROOTFS_BIN} -d ./resources/scripts/rootfs/Dockerfile
-
-guest: guestinit rootfsmaker cmdserver guestrootfs
-
-vsockclient:
-	mkdir -p ${OUT_DIR}
-	go build -o ${VSOCKCLIENT_BIN} ./cmd/vsockclient
-
-vsockserver:
-	mkdir -p ${OUT_DIR}
-	CGO_ENABLED=0 go build -o ${VSOCKSERVER_BIN} ./cmd/vsockserver
-
-initramfs: ${OUT_DIR}/initramfs.stamp
-${OUT_DIR}/initramfs.stamp: ${INITRAMFS_SRC_DIR}/create-initramfs.sh
-	${INITRAMFS_SRC_DIR}/create-initramfs.sh
+setup:
+	setup --rootfs="/tmp/rootfs.image" --cni-network-name=test --vm-cidr="10.10.1.10/24" --rootfs-image="tardigrade/rootfs:latest" --initramfs="/tmp/initramfs.cpio.gz"

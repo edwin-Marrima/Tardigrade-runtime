@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package cmdserver;
+
+option go_package = "github.com/edwin-Marrima/Tardigrade-runtime/proto";
+
+service CmdServer {
+  // RunCmd executes a shell command and streams its output back line by line.
+  // The final message carries the process exit_code; all preceding messages
+  // have exit_code = 0.
+  rpc RunCmd(RunCmdRequest) returns (stream RunCmdResponse);
+}
+
+message RunCmdRequest {
+  string cmd = 1;
+}
+
+message RunCmdResponse {
+  string output    = 1;
+  int32  exit_code = 2;
+}

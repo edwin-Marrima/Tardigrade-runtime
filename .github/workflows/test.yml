@@ -1,0 +1,110 @@
+name: Test
+
+on:
+  push:
+    branches: [main, feature/**, release/**]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Download binaries
+        run: make download-bins TARGET_ARCH=amd64
+
+      - name: Run tests
+        run: go test ./...
+
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Download Go dependencies
+        run: go mod download
+
+      - name: Download binaries
+        run: make download-bins TARGET_ARCH=${{ matrix.arch }}
+
+      - name: Build tardigrade-runtime
+        run: |
+          mkdir -p dist
+          GOARCH=${{ matrix.arch }} GOOS=linux go build \
+            -o dist/tardigrade-runtime-${{ matrix.arch }} ./cmd
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: tardigrade-runtime-${{ matrix.arch }}
+          path: dist/tardigrade-runtime-${{ matrix.arch }}
+          retention-days: 7
+
+  rootfs-image:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build rootfs image
+        run: make rootfs-image
+
+      - name: Determine image tag
+        if: >
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/main' ||
+           startsWith(github.ref, 'refs/heads/release/'))
+        id: meta
+        run: |
+          if [[ "$GITHUB_REF" == refs/heads/release/* ]]; then
+            echo "tag=${GITHUB_REF_NAME#release/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=nightly" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GitHub Container Registry
+        if: >
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/main' ||
+           startsWith(github.ref, 'refs/heads/release/'))
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image to ghcr.io
+        if: >
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/main' ||
+           startsWith(github.ref, 'refs/heads/release/'))
+        run: |
+          IMAGE=ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/rootfs
+          docker tag tardigrade/rootfs:latest "$IMAGE:${{ steps.meta.outputs.tag }}"
+          docker push "$IMAGE:${{ steps.meta.outputs.tag }}"

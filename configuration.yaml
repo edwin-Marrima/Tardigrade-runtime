@@ -1,0 +1,13 @@
+runtime:
+  firecracker_path: "/usr/local/bin/firecracker"
+  state_folder: "/var/tardigrade/runtime/state"
+  port: 8080
+  linux_kernel_path: "/opt/tardigrade/runtime/bin/vmlinux"
+network:
+  cidr: "172.16.0.0/24"
+  network_name: "tardigrade"
+filesystem:
+  initram_path: "/opt/tardigrade/runtime/fs/initramfs.cpio"
+  rootfs:
+    path: "/opt/tardigrade/runtime/fs/rootfs.img"
+    docker_image: "tardigrade/rootfs:latest"

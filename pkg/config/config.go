@@ -2,143 +2,75 @@ package config
 
 import (
 	"fmt"
+	"os"
 
-	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
-const (
-	serverConfigKey     = "hostservices.restserver"
-	clientConfigKey     = "hostservices.client"
-	codeServerConfigKey = "guestservices.codeserver"
-)
-
-type PortForwardConfig struct {
-	Port        string `mapstructure:"port"`
-	Description string `mapstructure:"description"`
+type RuntimeConfig struct {
+	FirecrackerPath string `yaml:"firecracker_path"`
+	StateFolder     string `yaml:"state_folder"`
+	Port            int    `yaml:"port"`
+	LinuxKernelPath string `yaml:"linux_kernel_path"`
 }
 
-type ServerConfig struct {
-	Host               string              `mapstructure:"host"`
-	Port               string              `mapstructure:"port"`
-	StateDir           string              `mapstructure:"state_dir"`
-	BridgeName         string              `mapstructure:"bridge_name"`
-	BridgeIP           string              `mapstructure:"bridge_ip"`
-	BridgeSubnet       string              `mapstructure:"bridge_subnet"`
-	ChvBinPath         string              `mapstructure:"chv_bin"`
-	KernelPath         string              `mapstructure:"kernel"`
-	RootfsPath         string              `mapstructure:"rootfs"`
-	PortForwards       []PortForwardConfig `mapstructure:"port_forwards"`
-	InitramfsPath      string              `mapstructure:"initramfs"`
-	StatefulSizeInMB   int32               `mapstructure:"stateful_size_in_mb"`
-	GuestMemPercentage int32               `mapstructure:"guest_mem_percentage"`
+type NetworkConfig struct {
+	Cidr        string `yaml:"cidr"`
+	NetworkName string `yaml:"network_name"`
 }
 
-func (c ServerConfig) String() string {
-	return fmt.Sprintf(`{
-Host: %s
-Port: %s
-StateDir: %s
-BridgeName: %s
-BridgeIP: %s
-BridgeSubnet: %s
-KernelPath: %s
-ChvBinPath: %s
-PortForwards: %+v
-InitramfsPath: %s
-StatefulSizeInMB: %d
-GuestMemPercentage: %d
-}`,
-		c.Host,
-		c.Port,
-		c.StateDir,
-		c.BridgeName,
-		c.BridgeIP,
-		c.BridgeSubnet,
-		c.KernelPath,
-		c.ChvBinPath,
-		c.PortForwards,
-		c.InitramfsPath,
-		c.StatefulSizeInMB,
-		c.GuestMemPercentage,
-	)
+type RootfsConfig struct {
+	Path        string `yaml:"path"`
+	DockerImage string `yaml:"docker_image"`
 }
 
-type ClientConfig struct {
-	ServerHost string `mapstructure:"server_host"`
-	ServerPort string `mapstructure:"server_port"`
+type FilesystemConfig struct {
+	InitramPath string       `yaml:"initram_path"`
+	Rootfs      RootfsConfig `yaml:"rootfs"`
 }
 
-func (c ClientConfig) String() string {
-	return fmt.Sprintf(`{
-ServerHost: %s
-ServerPort: %s
-}`, c.ServerHost, c.ServerPort)
+type Config struct {
+	Runtime    RuntimeConfig    `yaml:"runtime"`
+	Network    NetworkConfig    `yaml:"network"`
+	Filesystem FilesystemConfig `yaml:"filesystem"`
 }
 
-type CodeServerConfig struct {
-	Port string `mapstructure:"port"`
+func defaults() *Config {
+	return &Config{
+		Runtime: RuntimeConfig{
+			FirecrackerPath: "/usr/local/bin/firecracker",
+			StateFolder:     "/var/tardigrade/runtime/state",
+			Port:            8080,
+			LinuxKernelPath: "/opt/tardigrade/runtime/bin/vmlinux",
+		},
+		Network: NetworkConfig{
+			Cidr:        "172.16.0.0/24",
+			NetworkName: "tardigrade",
+		},
+		Filesystem: FilesystemConfig{
+			InitramPath: "/opt/tardigrade/runtime/fs/initramfs.cpio",
+			Rootfs: RootfsConfig{
+				Path:        "/opt/tardigrade/runtime/fs/rootfs.img",
+				DockerImage: "tardigrade/rootfs:latest",
+			},
+		},
+	}
 }
 
-func (c CodeServerConfig) String() string {
-	return fmt.Sprintf(`{
-Port: %s
-}`, c.Port)
-}
+func NewConfig(path string) (*Config, error) {
+	cfg := defaults()
 
-func GetServerConfig(configFile string) (*ServerConfig, error) {
-	viper.SetConfigFile(configFile)
-	err := viper.ReadInConfig()
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config: %v", err)
+		if os.IsNotExist(err) {
+			return cfg, nil
+		}
+		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
 	}
 
-	restServerConfig := viper.Sub(serverConfigKey)
-	if restServerConfig == nil {
-		return nil, fmt.Errorf("restserver configuration not found")
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config file %s: %w", path, err)
 	}
 
-	var result ServerConfig
-	if err := restServerConfig.Unmarshal(&result); err != nil {
-		return nil, fmt.Errorf("error unmarshalling config: %v", err)
-	}
-
-	return &result, nil
-}
-
-func GetClientConfig(configFile string) (*ClientConfig, error) {
-	viper.SetConfigFile(configFile)
-	err := viper.ReadInConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config: %v", err)
-	}
-
-	clientConfig := viper.Sub(clientConfigKey)
-	if clientConfig == nil {
-		return nil, fmt.Errorf("client configuration not found")
-	}
-
-	var result ClientConfig
-	if err := clientConfig.Unmarshal(&result); err != nil {
-		return nil, fmt.Errorf("error unmarshalling config: %v", err)
-	}
-	return &result, nil
-}
-
-func GetCodeServerConfig(configFile string) (*CodeServerConfig, error) {
-	viper.SetConfigFile(configFile)
-	err := viper.ReadInConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config: %v", err)
-	}
-
-	clientConfig := viper.Sub(clientConfigKey)
-	if clientConfig == nil {
-		return nil, fmt.Errorf("client configuration not found")
-	}
-
-	var result CodeServerConfig
-	if err := clientConfig.Unmarshal(&result); err != nil {
-		return nil, fmt.Errorf("error unmarshalling config: %v", err)
-	}
-	return &result, nil
+	return cfg, nil
 }
