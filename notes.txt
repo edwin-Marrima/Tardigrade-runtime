@@ -1,0 +1,9 @@
+Vagrant storage shortage
+
+sudo lvextend -l +100%FREE /dev/mapper/ubuntu--vg-ubuntu--lv
+sudo resize2fs /dev/mapper/ubuntu--vg-ubuntu--lv
+
+
+Create MicroVM
+
+curl -X POST localhost:8080/tenant/mine/vm -d '{"name":"vm-name","resourceAllocation":{"cpuCount":2,"memorySizeMb":512,"diskSizeMb":512}}'
