@@ -1,5 +1,5 @@
 
-BUSYBOX_VERSION ?= 1.36.1
+BUSYBOX_VERSION ?= 1.35.0
 
 # CNI versions
 CNI_PLUGINS_VERSION ?= 1.9.0
@@ -28,7 +28,7 @@ ifeq ($(TARGET_ARCH),arm64)
 else
   TC_REDIRECT_TAP_URL := https://github.com/alexellis/tc-tap-redirect-builder/releases/download/$(TC_REDIRECT_TAP_VERSION)/tc-redirect-tap
 endif
-LINUX_KERNEL_URL     := https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/$(TARGET_ARCH)/vmlinux-$(LINUX_KERNEL_VERSION)
+LINUX_KERNEL_URL     := https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/$(ALT_ARCH)/vmlinux-$(LINUX_KERNEL_VERSION)
 FIRECRACKER_URL      := https://github.com/firecracker-microvm/firecracker/releases/download/v$(FIRECRACKER_VERSION)/firecracker-v$(FIRECRACKER_VERSION)-$(ALT_ARCH).tgz
 
 PROTO_DIR    := proto
@@ -123,7 +123,7 @@ $(BIN_DIR)/firecracker:
 	chmod +x $(BIN_DIR)/firecracker
 
 .PHONY: download-bins
-download-bins: $(BIN_DIR)/firecracker $(CNI_BIN_DIR)/ptp $(CNI_BIN_DIR)/host-local $(CNI_BIN_DIR)/tc-redirect-tap $(BIN_DIR)/vmlinux $(BIN_DIR)/busybox $(BIN_DIR)/config.go
+download-bins: $(BIN_DIR)/firecracker $(CNI_BIN_DIR)/ptp $(CNI_BIN_DIR)/host-local $(CNI_BIN_DIR)/tc-redirect-tap $(BIN_DIR)/vmlinux $(BIN_DIR)/config.go $(BIN_DIR)/busybox
 	@echo "All binaries downloaded for TARGET_ARCH=$(TARGET_ARCH) (alt: $(ALT_ARCH))"
 
 .PHONY: clean
