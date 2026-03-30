@@ -1,6 +1,5 @@
 
 BUSYBOX_VERSION ?= 1.36.1
-BUSYBOX_URL = https://busybox.net/downloads/binaries/$(BUSYBOX_VERSION)-x86_64-linux-musl/busybox
 
 # CNI versions
 CNI_PLUGINS_VERSION ?= 1.9.0
@@ -9,15 +8,28 @@ LINUX_KERNEL_VERSION ?= 5.10.223
 FIRECRACKER_VERSION ?= 1.10.1
 TARGET_ARCH ?= arm64
 
-# Map TARGET_ARCH to Firecracker's arch naming convention (arm64 -> aarch64, amd64 -> x86_64)
-FIRECRACKER_ARCH := aarch64
+# Map TARGET_ARCH to alternate naming conventions:
+#   arm64 -> aarch64  (used by Firecracker releases and busybox musl)
+#   amd64 -> x86_64
+ifeq ($(TARGET_ARCH),arm64)
+  ALT_ARCH := aarch64
+else ifeq ($(TARGET_ARCH),amd64)
+  ALT_ARCH := x86_64
+else
+  $(error Unsupported TARGET_ARCH=$(TARGET_ARCH). Use arm64 or amd64)
+endif
 
 BIN_DIR     := ./.bin
 CNI_BIN_DIR := $(BIN_DIR)/cni
-CNI_PLUGINS_URL := https://github.com/containernetworking/plugins/releases/download/v$(CNI_PLUGINS_VERSION)/cni-plugins-linux-$(TARGET_ARCH)-v$(CNI_PLUGINS_VERSION).tgz
-TC_REDIRECT_TAP_URL := https://github.com/alexellis/tc-tap-redirect-builder/releases/download/2024-02-14-1230/tc-redirect-tap-arm64
-LINUX_KERNEL_URL := https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/$(TARGET_ARCH)/vmlinux-$(LINUX_KERNEL_VERSION)
-FIRECRACKER_URL := https://github.com/firecracker-microvm/firecracker/releases/download/v$(FIRECRACKER_VERSION)/firecracker-v$(FIRECRACKER_VERSION)-$(FIRECRACKER_ARCH).tgz
+BUSYBOX_URL          := https://busybox.net/downloads/binaries/$(BUSYBOX_VERSION)-$(ALT_ARCH)-linux-musl/busybox
+CNI_PLUGINS_URL      := https://github.com/containernetworking/plugins/releases/download/v$(CNI_PLUGINS_VERSION)/cni-plugins-linux-$(TARGET_ARCH)-v$(CNI_PLUGINS_VERSION).tgz
+ifeq ($(TARGET_ARCH),arm64)
+  TC_REDIRECT_TAP_URL := https://github.com/alexellis/tc-tap-redirect-builder/releases/download/$(TC_REDIRECT_TAP_VERSION)/tc-redirect-tap-arm64
+else
+  TC_REDIRECT_TAP_URL := https://github.com/alexellis/tc-tap-redirect-builder/releases/download/$(TC_REDIRECT_TAP_VERSION)/tc-redirect-tap
+endif
+LINUX_KERNEL_URL     := https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.10/$(TARGET_ARCH)/vmlinux-$(LINUX_KERNEL_VERSION)
+FIRECRACKER_URL      := https://github.com/firecracker-microvm/firecracker/releases/download/v$(FIRECRACKER_VERSION)/firecracker-v$(FIRECRACKER_VERSION)-$(ALT_ARCH).tgz
 
 PROTO_DIR    := proto
 ROOTFS_IMAGE ?= tardigrade/rootfs
@@ -40,9 +52,11 @@ proto:
 		$(PROTO_DIR)/cmdserver.proto
 
 .PHONY: vmlinux
-vmlinux:
-	curl -o $(BIN_DIR)/vmlinux -S -L \
-	"$(LINUX_KERNEL_URL)"
+vmlinux: $(BIN_DIR)/vmlinux
+
+$(BIN_DIR)/vmlinux:
+	mkdir -p $(BIN_DIR)
+	curl -fsSL "$(LINUX_KERNEL_URL)" -o $(BIN_DIR)/vmlinux
 
 .PHONY: cni-plugins
 cni-plugins: $(CNI_BIN_DIR)/ptp $(CNI_BIN_DIR)/host-local $(CNI_BIN_DIR)/tc-redirect-tap $(BIN_DIR)/config.go
@@ -89,7 +103,11 @@ $(BIN_DIR)/config.go: $(CNI_BIN_DIR)/ptp $(CNI_BIN_DIR)/host-local $(CNI_BIN_DIR
 	@echo "$$BIN_CONFIG_GO" > $@
 
 
-busybox:
+.PHONY: busybox
+busybox: $(BIN_DIR)/busybox
+
+$(BIN_DIR)/busybox:
+	mkdir -p $(BIN_DIR)
 	curl -fsSL $(BUSYBOX_URL) -o $(BIN_DIR)/busybox
 	chmod +x $(BIN_DIR)/busybox
 
@@ -100,9 +118,17 @@ $(BIN_DIR)/firecracker:
 	mkdir -p $(BIN_DIR)
 	curl -fsSL $(FIRECRACKER_URL) | tar -xz --strip-components=1 \
 		-C $(BIN_DIR) \
-		release-v$(FIRECRACKER_VERSION)-$(FIRECRACKER_ARCH)/firecracker-v$(FIRECRACKER_VERSION)-$(FIRECRACKER_ARCH)
-	mv $(BIN_DIR)/firecracker-v$(FIRECRACKER_VERSION)-$(FIRECRACKER_ARCH) $(BIN_DIR)/firecracker
+		release-v$(FIRECRACKER_VERSION)-$(ALT_ARCH)/firecracker-v$(FIRECRACKER_VERSION)-$(ALT_ARCH)
+	mv $(BIN_DIR)/firecracker-v$(FIRECRACKER_VERSION)-$(ALT_ARCH) $(BIN_DIR)/firecracker
 	chmod +x $(BIN_DIR)/firecracker
+
+.PHONY: download-bins
+download-bins: $(BIN_DIR)/firecracker $(CNI_BIN_DIR)/ptp $(CNI_BIN_DIR)/host-local $(CNI_BIN_DIR)/tc-redirect-tap $(BIN_DIR)/vmlinux $(BIN_DIR)/busybox $(BIN_DIR)/config.go
+	@echo "All binaries downloaded for TARGET_ARCH=$(TARGET_ARCH) (alt: $(ALT_ARCH))"
+
+.PHONY: clean
+clean:
+	rm -rf $(BIN_DIR)
 
 .PHONY: vagrant-sync
 vagrant-sync:
