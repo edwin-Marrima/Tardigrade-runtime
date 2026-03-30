@@ -21,6 +21,9 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Download binaries
+        run: make download-bins TARGET_ARCH=amd64
+
       - name: Run tests
         run: go test ./...
 
